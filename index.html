@@ -6,6 +6,7 @@
 <title>Perq — Credit Card Benefits Tracker</title>
 <!-- PWA: installable app shell + iOS standalone polish (closet precedent) -->
 <link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="static/icon-192.png" />
 <link rel="apple-touch-icon" href="static/icon-180.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
@@ -1667,7 +1668,7 @@ function App() {
             ? <>Saved to <b>{fileName}</b> on every change{lsFlash ? " ·" : ""} <span style={{ color: "var(--good)" }}>{lsFlash ? "●" : ""}</span></>
             : <>Saved in this browser{lsFlash ? <span style={{ color: "var(--good)" }}> ●</span> : ""}.{" "}
                 {FSA_SUPPORTED ? "Use “Auto-save to file” for a real backup file." : "Use Export to back up (your browser can’t auto-save to a file)."}</>}
-          {"  "}<a onClick={resetAll}>Reset to seed</a>
+          {"  "}<a onClick={resetAll}>{PERQ_SHELL ? "Clear all data" : "Reset to seed"}</a>
         </span>
         <span className={"tests " + (tests.failed.length ? "fail" : "ok")}>
           engine self-tests: {tests.passed}/{tests.total} {tests.failed.length ? "FAILED" : "passed"}
