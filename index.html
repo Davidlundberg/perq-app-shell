@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Perq — Credit Card Benefits Tracker</title>
+<!-- PWA: installable app shell + iOS standalone polish (closet precedent) -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="static/icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Perq" />
+<!-- Matches --bg in light/dark (see :root below). -->
+<meta name="theme-color" content="#f6f7f9" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1120" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --accent: #0d9488;
+    --accent-strong: #0f766e;
+    --accent-soft: #ccfbf1;
+    --good: #15803d;
+    --good-bg: #dcfce7;
+    --bad: #b91c1c;
+    --bad-bg: #fee2e2;
+    --warn: #b45309;
+    --warn-bg: #fef3c7;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f1f5f9;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-soft: #475569;
+    --text-faint: #94a3b8;
+    --shadow: 0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.06);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent: #2dd4bf;
+      --accent-strong: #5eead4;
+      --accent-soft: #134e4a;
+      --good: #4ade80;
+      --good-bg: #052e16;
+      --bad: #f87171;
+      --bad-bg: #450a0a;
+      --warn: #fbbf24;
+      --warn-bg: #422006;
+      --bg: #0b1120;
+      --surface: #111827;
+      --surface-2: #1e293b;
+      --border: #1f2937;
+      --text: #f1f5f9;
+      --text-soft: #cbd5e1;
+      --text-faint: #64748b;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 22px 18px 80px; }
+
+  /* Header */
+  header.app { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+  .brand .dot { color: var(--accent); }
+  .brand .sub { color: var(--text-faint); font-size: 13px; font-weight: 500; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  button {
+    font-family: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); padding: 9px 13px; transition: .12s; line-height: 1;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent-strong); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: var(--accent-strong); color: #fff; }
+  button.ghost { background: transparent; }
+  button.danger:hover { border-color: var(--bad); color: var(--bad); }
+  button.tiny { padding: 5px 9px; font-size: 12px; border-radius: 8px; }
+  button.autosave-cta { border-color: var(--accent); color: var(--accent-strong); }
+  button.autosave-cta:hover { background: var(--accent-soft); }
+
+  /* auto-save status bar */
+  .autosave-bar { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--good); border-radius: 10px; padding: 9px 13px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .autosave-bar .as-text { flex: 1; font-size: 13px; color: var(--text-soft); }
+  .autosave-bar .as-text b { color: var(--text); }
+  .as-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex: 0 0 auto; }
+  .as-dot[data-status="saving"] { background: var(--warn); }
+  .as-dot[data-status="error"] { background: var(--bad); }
+
+  /* account / cloud sync */
+  .account-form { display: flex; flex-direction: column; gap: 10px; padding: 14px 4px 6px; }
+  .account-form input { font-family: inherit; font-size: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+  .account-form input:focus { outline: none; border-color: var(--accent); }
+  .account-form .row { display: flex; gap: 8px; }
+  .account-form .row button { flex: 1; }
+  .account-msg { font-size: 12.5px; color: var(--text-soft); line-height: 1.5; }
+  .account-msg.err { color: var(--bad); font-weight: 600; }
+  .account-whoami { font-size: 13px; padding: 12px 4px 2px; color: var(--text-soft); }
+  .account-whoami b { color: var(--text); }
+
+  /* Summary */
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow); }
+  .stat .label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 700; margin-bottom: 6px; }
+  .stat .value { font-size: 25px; font-weight: 800; letter-spacing: -.02em; }
+  .stat .meta { font-size: 12px; color: var(--text-soft); margin-top: 3px; }
+  .stat.net.pos .value { color: var(--good); }
+  .stat.net.neg .value { color: var(--bad); }
+  .stat.accent { background: linear-gradient(160deg, var(--accent), var(--accent-strong)); border-color: transparent; color: #fff; }
+  .stat.accent .label, .stat.accent .meta { color: rgba(255,255,255,.85); }
+
+  /* Expiring strip */
+  .strip { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; box-shadow: var(--shadow); }
+  .strip h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--warn); margin: 0 0 11px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .strip .chips { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 3px; }
+  .chip { flex: 0 0 auto; min-width: 188px; border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 10px; padding: 9px 11px; background: var(--surface-2); }
+  .chip .c-card { font-size: 11px; color: var(--text-faint); font-weight: 600; }
+  .chip .c-name { font-size: 13.5px; font-weight: 600; margin: 2px 0 5px; }
+  .chip .c-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .chip .c-days { font-size: 12px; font-weight: 700; }
+  .days-0 { color: var(--bad); }
+  .days-soon { color: var(--warn); }
+  .strip.empty h2 { color: var(--good); }
+  .strip .none { font-size: 13px; color: var(--text-soft); }
+
+  /* Card sections */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .card-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; user-select: none; }
+  .card-head:hover { background: var(--surface-2); }
+  .caret { transition: transform .15s; color: var(--text-faint); font-size: 13px; }
+  .caret.open { transform: rotate(90deg); }
+  .card-title { flex: 1; min-width: 0; }
+  .card-title .name { font-size: 16px; font-weight: 700; }
+  .card-title .issuer { font-size: 12px; color: var(--text-faint); font-weight: 500; }
+  .verdict { text-align: right; }
+  .verdict .net { font-size: 16px; font-weight: 800; }
+  .verdict .net.pos { color: var(--good); }
+  .verdict .net.neg { color: var(--bad); }
+  .verdict .tag { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; display: inline-block; margin-top: 3px; }
+  .verdict .tag.pos { color: var(--good); background: var(--good-bg); }
+  .verdict .tag.neg { color: var(--bad); background: var(--bad-bg); }
+
+  .card-body { border-top: 1px solid var(--border); padding: 6px 16px 14px; }
+  .card-sub { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-soft); padding: 10px 2px; border-bottom: 1px dashed var(--border); margin-bottom: 6px; }
+  .card-sub b { color: var(--text); font-weight: 700; }
+
+  /* Benefit rows */
+  .benefit { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 13px 2px; border-bottom: 1px solid var(--border); }
+  .benefit:last-child { border-bottom: none; }
+  .b-main { min-width: 0; }
+  .b-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .b-face { color: var(--text-soft); font-weight: 600; }
+  .cadence { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-strong); background: var(--accent-soft); padding: 2px 7px; border-radius: 999px; }
+  @media (prefers-color-scheme: dark) { .cadence { color: var(--accent-strong); background: var(--accent-soft); } }
+  .b-reset { font-size: 12px; color: var(--text-faint); margin-top: 4px; }
+  .b-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .b-eff { text-align: right; min-width: 84px; }
+  .b-eff .e-val { font-size: 14px; font-weight: 700; }
+  .b-eff .e-lbl { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+
+  /* segmented offset/induced */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 6px 10px; font-size: 12px; background: transparent; color: var(--text-soft); }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .seg button:hover:not(.on) { background: var(--surface-2); color: var(--text); }
+
+  /* used switch */
+  .switch { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-soft); cursor: pointer; }
+  .track { width: 38px; height: 22px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); position: relative; transition: .15s; }
+  .track .knob { position: absolute; top: 1px; left: 1px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: .15s; }
+  .switch.on .track { background: var(--good); border-color: var(--good); }
+  .switch.on .track .knob { left: 17px; }
+  .switch.on { color: var(--good); }
+
+  /* realization slider */
+  .slider { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-soft); }
+  .slider input[type=range] { width: 96px; accent-color: var(--accent); }
+  .slider .pct { font-weight: 700; min-width: 34px; color: var(--text); }
+
+  /* usage units stepper */
+  .stepper { display: inline-flex; align-items: center; gap: 6px; }
+  .stepper button { padding: 3px 10px; font-size: 15px; line-height: 1; border-radius: 7px; font-weight: 700; }
+  .stepper .units { font-size: 12px; font-weight: 700; color: var(--text); min-width: 80px; text-align: center; }
+
+  .b-note { grid-column: 1 / -1; margin-top: 6px; }
+  .b-note textarea { width: 100%; resize: vertical; min-height: 30px; font-family: inherit; font-size: 12.5px; color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+  .b-note textarea:focus { outline: none; border-color: var(--accent); }
+
+  .used-flag { font-size: 11px; font-weight: 700; color: var(--good); }
+
+  /* modal */
+  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: flex-start; justify-content: center; padding: 50px 16px; z-index: 50; overflow-y: auto; }
+  .modal { background: var(--surface); border-radius: 16px; max-width: 560px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.3); border: 1px solid var(--border); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+  .modal-body { padding: 8px 18px 18px; max-height: 60vh; overflow-y: auto; }
+  .pick { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 4px; border-bottom: 1px solid var(--border); }
+  .pick:last-child { border-bottom: none; }
+  .pick .p-name { font-weight: 600; font-size: 14.5px; }
+  .pick .p-meta { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text-soft); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius); }
+  .empty-state h3 { font-size: 18px; color: var(--text); margin: 0 0 6px; }
+  .empty-state p { max-width: 440px; margin: 0 auto; }
+  .empty-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+
+  footer.app { margin-top: 26px; font-size: 12px; color: var(--text-faint); display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  footer.app .tests.ok { color: var(--good); }
+  footer.app .tests.fail { color: var(--bad); font-weight: 700; }
+  footer.app a { color: var(--accent-strong); cursor: pointer; }
+
+  @media (max-width: 760px) {
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .benefit { grid-template-columns: 1fr; }
+    .b-eff { text-align: left; }
+    .b-controls { justify-content: flex-start; }
+    .verdict .net { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ============================================================= -->
+<!-- PURE LOGIC MODULE — no React, no DOM. All value/period math.   -->
+<!-- Lift this whole block out to verify or port to a backend.      -->
+<!-- ============================================================= -->
+<script>
+const Engine = (function () {
+  const DAY = 86400000;
+  const CADENCES = ["monthly", "quarterly", "semiannual", "annual", "multi_year"];
+
+  function midnight(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+  // How many times per year this benefit's face value recurs.
+  function periodsPerYear(cadence, multiYearYears) {
+    switch (cadence) {
+      case "monthly": return 12;
+      case "quarterly": return 4;
+      case "semiannual": return 2;
+      case "annual": return 1;
+      case "multi_year": return 1 / (multiYearYears && multiYearYears > 0 ? multiYearYears : 4);
+      default: return 1;
+    }
+  }
+
+  // The current period for a cadence given "today" (calendar-aligned).
+  // Returns { key, start, end } where end is the last day of the period.
+  function currentPeriod(cadence, today, multiYearYears) {
+    const t = midnight(today);
+    const y = t.getFullYear(), m = t.getMonth();
+    const pad = (n) => String(n).padStart(2, "0");
+    switch (cadence) {
+      case "monthly":
+        return { key: `${y}-${pad(m + 1)}`, start: new Date(y, m, 1), end: new Date(y, m + 1, 0) };
+      case "quarterly": {
+        const q = Math.floor(m / 3);
+        return { key: `${y}-Q${q + 1}`, start: new Date(y, q * 3, 1), end: new Date(y, q * 3 + 3, 0) };
+      }
+      case "semiannual": {
+        const h = m < 6 ? 0 : 1;
+        return { key: `${y}-H${h + 1}`, start: new Date(y, h * 6, 1), end: new Date(y, h * 6 + 6, 0) };
+      }
+      case "annual":
+        return { key: `${y}`, start: new Date(y, 0, 1), end: new Date(y, 11, 31) };
+      case "multi_year": {
+        const n = multiYearYears && multiYearYears > 0 ? multiYearYears : 4;
+        const block = Math.floor(y / n) * n;
+        return { key: `MY-${block}-${block + n - 1}`, start: new Date(block, 0, 1), end: new Date(block + n - 1, 11, 31) };
+      }
+      default:
+        return { key: `${y}`, start: new Date(y, 0, 1), end: new Date(y, 11, 31) };
+    }
+  }
+
+  // Whole days from today until (and including) the last day of the current period.
+  function daysToReset(cadence, today, multiYearYears) {
+    const { end } = currentPeriod(cadence, today, multiYearYears);
+    return Math.round((midnight(end) - midnight(today)) / DAY);
+  }
+
+  // Is the stored "used" flag valid for the period we're in right now?
+  // A used flag stamped in a prior period auto-expires (resets to unused).
+  function isUsedNow(benefit, today) {
+    if (!benefit.used) return false;
+    const { key } = currentPeriod(benefit.reset_cadence, today, benefit.multi_year_years);
+    return benefit.used_period_key === key;
+  }
+
+  // How many face-units accrue per year. Offset/induced accrue on a calendar
+  // period (monthly=12, …); USAGE benefits accrue once per expected use (a
+  // lounge visit, a hotel night) — value scales with how often you travel, not
+  // with the calendar.
+  function annualUnits(b) {
+    if (b.value_type === "usage") return Math.max(0, num(b.expected_units));
+    return periodsPerYear(b.reset_cadence, b.multi_year_years);
+  }
+
+  // Annualized face value (nominal) of one benefit = per-unit face × units/yr.
+  function annualNominal(b) {
+    return num(b.face_value) * annualUnits(b);
+  }
+
+  // Annualized effective value: offset counts at full face; induced and usage
+  // are discounted by their realization rate (the share of sticker value you
+  // actually capture).
+  function annualEffective(b) {
+    const nominal = annualNominal(b);
+    if (b.value_type === "offset") return nominal;
+    return nominal * (clampRate(b.realization_rate) / 100);
+  }
+
+  // Totals for a held card (its fee + its benefits).
+  function cardTotals(card, benefits) {
+    let nominal = 0, effective = 0;
+    for (const b of benefits) { nominal += annualNominal(b); effective += annualEffective(b); }
+    const fee = num(card.annual_fee);
+    return { nominal, effective, fee, net: effective - fee };
+  }
+
+  // Portfolio totals across all held cards.
+  function portfolioTotals(cards, benefitsByCard) {
+    let nominal = 0, effective = 0, fees = 0;
+    for (const c of cards) {
+      const t = cardTotals(c, benefitsByCard[c.id] || []);
+      nominal += t.nominal; effective += t.effective; fees += t.fee;
+    }
+    return { nominal, effective, fees, net: effective - fees };
+  }
+
+  // Expiring soon: unused AND within `windowDays` of the period reset.
+  // Usage benefits (lounges, status, per-stay perks) have no use-by date, so
+  // they never expire.
+  function isExpiringSoon(benefit, today, windowDays) {
+    const w = windowDays == null ? 14 : windowDays;
+    if (benefit.value_type === "usage") return false;
+    if (isUsedNow(benefit, today)) return false;
+    const d = daysToReset(benefit.reset_cadence, today, benefit.multi_year_years);
+    return d >= 0 && d < w;
+  }
+
+  function num(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
+  function clampRate(r) { const n = num(r); return Math.max(0, Math.min(100, n)); }
+
+  return {
+    DAY, CADENCES, midnight, periodsPerYear, annualUnits, currentPeriod, daysToReset,
+    isUsedNow, annualNominal, annualEffective, cardTotals, portfolioTotals,
+    isExpiringSoon, num, clampRate,
+  };
+})();
+
+// ---- Self-tests (cheap correctness gate; result shown in footer) ----
+function runEngineSelfTests() {
+  const results = [];
+  const ok = (name, cond) => results.push({ name, pass: !!cond });
+  const approx = (a, b) => Math.abs(a - b) < 1e-9;
+  const D = (y, m, d) => new Date(y, m - 1, d);
+
+  ok("periodsPerYear monthly=12", Engine.periodsPerYear("monthly") === 12);
+  ok("periodsPerYear quarterly=4", Engine.periodsPerYear("quarterly") === 4);
+  ok("periodsPerYear semiannual=2", Engine.periodsPerYear("semiannual") === 2);
+  ok("periodsPerYear annual=1", Engine.periodsPerYear("annual") === 1);
+  ok("periodsPerYear multi_year(4)=0.25", approx(Engine.periodsPerYear("multi_year", 4), 0.25));
+
+  ok("annualNominal monthly $25 = 300", approx(Engine.annualNominal({ face_value: 25, reset_cadence: "monthly" }), 300));
+  ok("annualNominal multi_year $120/4 = 30", approx(Engine.annualNominal({ face_value: 120, reset_cadence: "multi_year", multi_year_years: 4 }), 30));
+  ok("offset effective = nominal", approx(Engine.annualEffective({ face_value: 200, reset_cadence: "annual", value_type: "offset" }), 200));
+  ok("induced effective = nominal*rate", approx(Engine.annualEffective({ face_value: 680, reset_cadence: "annual", value_type: "induced", realization_rate: 65 }), 442));
+  ok("induced rate clamps >100", approx(Engine.annualEffective({ face_value: 100, reset_cadence: "annual", value_type: "induced", realization_rate: 150 }), 100));
+
+  ok("usage nominal = face × units", approx(Engine.annualNominal({ face_value: 50, value_type: "usage", expected_units: 12 }), 600));
+  ok("usage effective = nominal × rate", approx(Engine.annualEffective({ face_value: 50, value_type: "usage", expected_units: 12, realization_rate: 45 }), 270));
+  ok("usage zero units = 0", approx(Engine.annualNominal({ face_value: 50, value_type: "usage", expected_units: 0 }), 0));
+
+  // period keys at a fixed date: May 31, 2026
+  const may31 = D(2026, 5, 31);
+  ok("monthly key 2026-05", Engine.currentPeriod("monthly", may31).key === "2026-05");
+  ok("quarterly key 2026-Q2", Engine.currentPeriod("quarterly", may31).key === "2026-Q2");
+  ok("semiannual key 2026-H1", Engine.currentPeriod("semiannual", may31).key === "2026-H1");
+  ok("annual key 2026", Engine.currentPeriod("annual", may31).key === "2026");
+  ok("multi_year(4) key block 2024-2027", Engine.currentPeriod("multi_year", may31, 4).key === "MY-2024-2027");
+
+  // daysToReset: from May 31 to end of May = 0; to end of year = 214
+  ok("daysToReset monthly end-of-month = 0", Engine.daysToReset("monthly", may31) === 0);
+  ok("daysToReset annual May31->Dec31 = 214", Engine.daysToReset("annual", may31) === 214);
+
+  // used-now auto-expiry
+  const b = { used: true, used_period_key: "2026-04", reset_cadence: "monthly" };
+  ok("used flag from prior period expires", Engine.isUsedNow(b, may31) === false);
+  ok("used flag for current period holds", Engine.isUsedNow({ used: true, used_period_key: "2026-05", reset_cadence: "monthly" }, may31) === true);
+
+  // expiring soon: unused monthly on May 31 -> 0 days -> expiring
+  ok("unused monthly at month-end is expiring", Engine.isExpiringSoon({ used: false, reset_cadence: "monthly" }, may31) === true);
+  ok("used benefit is never expiring", Engine.isExpiringSoon({ used: true, used_period_key: "2026-05", reset_cadence: "monthly" }, may31) === false);
+  ok("annual benefit mid-year not expiring", Engine.isExpiringSoon({ used: false, reset_cadence: "annual" }, may31) === false);
+  ok("usage benefit never expiring", Engine.isExpiringSoon({ value_type: "usage", expected_units: 5, reset_cadence: "annual" }, may31) === false);
+
+  // card totals & net
+  const card = { annual_fee: 650 };
+  const bens = [
+    { face_value: 25, reset_cadence: "monthly", value_type: "offset" },      // 300
+    { face_value: 680, reset_cadence: "annual", value_type: "induced", realization_rate: 65 }, // 442
+    { face_value: 120, reset_cadence: "multi_year", multi_year_years: 4, value_type: "offset" }, // 30
+  ];
+  const ct = Engine.cardTotals(card, bens);
+  ok("cardTotals nominal = 1010", approx(ct.nominal, 25 * 12 + 680 + 30));
+  ok("cardTotals effective = 772", approx(ct.effective, 300 + 442 + 30));
+  ok("cardTotals net = 122", approx(ct.net, 772 - 650));
+
+  // ---- Seed-data integrity: recompute every seed card straight from SEED and
+  // assert structural invariants. No magic-number oracle, so it survives seed
+  // edits, and it exercises offset / induced / usage rows as they ship. ----
+  if (typeof SEED !== "undefined") {
+    for (const cat of SEED.catalog) {
+      const rows = SEED.catalog_benefits.filter(b => b.card_catalog_id === cat.id).map(b => ({
+        face_value: b.face_value, reset_cadence: b.reset_cadence, multi_year_years: b.multi_year_years,
+        value_type: b.default_value_type, realization_rate: b.default_realization_rate,
+        expected_units: b.expected_units,
+      }));
+      let nom = 0, eff = 0;
+      for (const b of rows) { nom += Engine.annualNominal(b); eff += Engine.annualEffective(b); }
+      ok(`seed ${cat.id} has benefits`, rows.length > 0);
+      ok(`seed ${cat.id} totals finite`, isFinite(nom) && isFinite(eff));
+      ok(`seed ${cat.id} effective <= nominal`, eff <= nom + 1e-9);
+      ok(`seed ${cat.id} effective > 0`, eff > 0);
+    }
+
+    // ---- reconcileHeldBenefits: a held card missing newer catalog benefits
+    // gets them back-filled on load, without disturbing existing tuned rows. ----
+    if (typeof reconcileHeldBenefits === "function" && typeof syncSeedCatalog === "function") {
+      const cat0 = SEED.catalog[0];
+      const full = SEED.catalog_benefits.filter(b => b.card_catalog_id === cat0.id);
+      // Simulate a stale card holding only its FIRST benefit, with a custom note.
+      const stale = {
+        schema_version: 1, catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_test", card_catalog_id: cat0.id, name: cat0.name, annual_fee: cat0.annual_fee }],
+        held_benefits: [{
+          id: "hb_test", held_card_id: "hc_test", catalog_benefit_id: full[0].id,
+          name: full[0].name, face_value: full[0].face_value, reset_cadence: full[0].reset_cadence,
+          value_type: full[0].default_value_type, realization_rate: 33, note: "MY TUNING", used: false,
+        }],
+      };
+      const fixed = reconcileHeldBenefits(syncSeedCatalog(stale));
+      const fixedRows = fixed.held_benefits.filter(b => b.held_card_id === "hc_test");
+      ok("reconcile back-fills missing benefits", fixedRows.length === full.length);
+      ok("reconcile reports added count", fixed._reconciled_added === full.length - 1);
+      const kept = fixedRows.find(b => b.id === "hb_test");
+      ok("reconcile preserves existing tuning", kept && kept.realization_rate === 33 && kept.note === "MY TUNING");
+      const noDupes = new Set(fixedRows.map(b => b.catalog_benefit_id)).size === fixedRows.length;
+      ok("reconcile creates no duplicates", noDupes);
+      // Idempotent: a second pass adds nothing.
+      const again = reconcileHeldBenefits(fixed);
+      ok("reconcile is idempotent", again._reconciled_added === 0);
+    }
+  }
+
+  // ---- CloudSync: row mapping is the cloud-schema contract; syncDecision is
+  // the entire merge policy. Both are pure — test them without a network. ----
+  if (typeof CloudSync !== "undefined") {
+    const stamp = "2026-06-12T00:00:00.000Z";
+    const db1 = {
+      held_cards: [{ id: "hc1", card_catalog_id: "amex_platinum", name: "Amex Platinum", issuer: "American Express", network: "Amex", nickname: null, annual_fee: 895, added_at: "2026-05-31T00:00:00.000Z", _junk: true }],
+      held_benefits: [{ id: "hb1", held_card_id: "hc1", catalog_benefit_id: "cb_amex_platinum_1", name: "Hotel Credit", face_value: 300, reset_cadence: "semiannual", multi_year_years: null, value_type: "offset", realization_rate: 80, unit_label: null, expected_units: null, note: "tuned", used: true, used_period_key: "2026-H1", sort_order: 1, _junk: true }],
+    };
+    const rows = CloudSync.rowsFromDb(db1, "user-1", stamp);
+    ok("cloud rows: card mapped with user + stamp", rows.cards.length === 1 && rows.cards[0].user_id === "user-1" && rows.cards[0].updated_at === stamp && rows.cards[0].annual_fee === 895);
+    ok("cloud rows: stray local fields stripped", !("_junk" in rows.cards[0]) && !("_junk" in rows.benefits[0]));
+    ok("cloud rows: benefit tuning survives mapping", rows.benefits[0].realization_rate === 80 && rows.benefits[0].used === true && rows.benefits[0].used_period_key === "2026-H1" && rows.benefits[0].note === "tuned");
+    const back = CloudSync.dbFromRows(rows.cards, rows.benefits, 1);
+    ok("cloud round-trip: held shapes restored", back.held_cards[0].id === "hc1" && !("user_id" in back.held_cards[0]) && back.held_benefits[0].note === "tuned" && back.held_benefits[0].used === true);
+    ok("cloud round-trip: all four tables present", Array.isArray(back.catalog) && Array.isArray(back.catalog_benefits) && back.schema_version === 1);
+
+    const dec = CloudSync.syncDecision;
+    ok("sync: empty cloud → push", dec({ cloudStamp: null, everSynced: false, localDirty: true }) === "push");
+    ok("sync: fresh device, cloud data, untouched local → pull", dec({ cloudStamp: "A", everSynced: false, localDirty: false }) === "pull");
+    ok("sync: fresh device, cloud data, edited local → ask", dec({ cloudStamp: "A", everSynced: false, localDirty: true }) === "first-sync-conflict");
+    ok("sync: cloud moved, local clean → pull", dec({ cloudStamp: "B", knownCloudStamp: "A", everSynced: true, localDirty: false }) === "pull");
+    ok("sync: cloud same, local dirty → push", dec({ cloudStamp: "A", knownCloudStamp: "A", everSynced: true, localDirty: true }) === "push");
+    ok("sync: in sync → none", dec({ cloudStamp: "A", knownCloudStamp: "A", everSynced: true, localDirty: false }) === "none");
+    ok("sync: both moved, cloud newer → pull", dec({ cloudStamp: "2026-06-12T02:00:00Z", knownCloudStamp: "2026-06-12T00:00:00Z", everSynced: true, localDirty: true, localChangedAt: "2026-06-12T01:00:00Z" }) === "pull");
+    ok("sync: both moved, local newer → push", dec({ cloudStamp: "2026-06-12T01:00:00Z", knownCloudStamp: "2026-06-12T00:00:00Z", everSynced: true, localDirty: true, localChangedAt: "2026-06-12T02:00:00Z" }) === "push");
+  }
+
+  const passed = results.filter(r => r.pass).length;
+  const failed = results.filter(r => !r.pass);
+  if (failed.length) console.error("[Perq] engine self-tests FAILED:", JSON.stringify(failed.map(f => f.name)));
+  else console.log(`[Perq] engine self-tests passed: ${passed}/${results.length}`);
+  return { passed, total: results.length, failed };
+}
+</script>
+
+<!-- ============================================================= -->
+<!-- SEED CATALOG — table-shaped rows (card_catalog + catalog_benefit) -->
+<!-- 2026 verified data. face_value is PER PERIOD.                   -->
+<!-- ============================================================= -->
+<script>
+const SEED = (function () {
+  // helper to keep benefit rows terse
+  const cb = (card_catalog_id, sort, name, face_value, reset_cadence, value_type, realization_rate, note, multi_year_years) => ({
+    id: `cb_${card_catalog_id}_${sort}`,
+    card_catalog_id, sort_order: sort, name,
+    face_value, reset_cadence,
+    default_value_type: value_type,
+    default_realization_rate: realization_rate,
+    default_note: note,
+    multi_year_years: multi_year_years || null,
+    unit_label: null, expected_units: null,
+  });
+
+  // Usage benefit: value scales per use, not per calendar period. face_value is
+  // the per-unit sticker; realization_rate is the share of that you'd actually
+  // pay for; expected_units is how many you get per year.
+  const cu = (card_catalog_id, sort, name, value_per_unit, unit_label, expected_units, realization_rate, note) => ({
+    id: `cb_${card_catalog_id}_${sort}`,
+    card_catalog_id, sort_order: sort, name,
+    face_value: value_per_unit, reset_cadence: "annual",
+    default_value_type: "usage",
+    default_realization_rate: realization_rate,
+    default_note: note,
+    multi_year_years: null,
+    unit_label, expected_units,
+  });
+
+  const catalog = [
+    { id: "amex_platinum", name: "Amex Platinum", issuer: "American Express", network: "Amex", annual_fee: 895, sort_order: 1 },
+    { id: "csr", name: "Chase Sapphire Reserve", issuer: "Chase", network: "Visa", annual_fee: 795, sort_order: 2 },
+    { id: "bonvoy_brilliant", name: "Marriott Bonvoy Brilliant", issuer: "American Express", network: "Amex", annual_fee: 650, sort_order: 3 },
+  ];
+
+  const catalog_benefits = [
+    // ---- Amex Platinum ($895) — 2026 post-refresh ----
+    cb("amex_platinum", 1, "Hotel Credit (FHR / The Hotel Collection)", 300, "semiannual", "offset", 80, "Prepaid Fine Hotels+Resorts / The Hotel Collection via Amex Travel. Two windows (Jan–Jun, Jul–Dec); THC needs a 2-night min."),
+    cb("amex_platinum", 2, "Resy Dining Credit", 100, "quarterly", "offset", 75, "Eligible U.S. Resy restaurants; enrollment required; resets each calendar quarter (use-or-lose)."),
+    cb("amex_platinum", 3, "Airline Fee Credit", 200, "annual", "offset", 85, "Incidental fees (bags, seats, lounge passes) on one selected airline. Airfare excluded."),
+    cb("amex_platinum", 4, "Uber Cash", 15, "monthly", "offset", 90, "$15/mo for Uber & Uber Eats (US); $35 in December. Platinum must be the payment method; no rollover."),
+    cb("amex_platinum", 5, "Uber One Membership", 120, "annual", "induced", 50, "Covers Uber One membership up to $120/yr."),
+    cb("amex_platinum", 6, "Digital Entertainment Credit", 25, "monthly", "offset", 70, "Disney+, Hulu, ESPN+, Peacock, Paramount+, NYT, WSJ, YouTube Premium/TV. Enrollment; monthly use-or-lose."),
+    cb("amex_platinum", 7, "CLEAR Plus Credit", 219, "annual", "offset", 60, "Covers CLEAR Plus membership ($219/yr — price and credit both raised 7/1/2026)."),
+    cb("amex_platinum", 8, "Walmart+ Membership", 12.95, "monthly", "induced", 50, "Covers the monthly Walmart+ plan only (not annual); pay with Platinum."),
+    cb("amex_platinum", 9, "Equinox Credit", 300, "annual", "induced", 40, "Annual $300 on Equinox club or Equinox+/App; enrollment + auto-renew."),
+    cb("amex_platinum", 10, "lululemon Credit", 75, "quarterly", "induced", 60, "U.S. lululemon stores (excl. outlets) or lululemon.com; quarterly use-or-lose."),
+    cb("amex_platinum", 11, "Oura Ring Credit", 200, "annual", "induced", 25, "Up to $200 on an Oura Ring purchase (hardware only)."),
+    cb("amex_platinum", 12, "Global Entry / TSA PreCheck", 120, "multi_year", "offset", 100, "App-fee reimbursement: $120 Global Entry or up to $85 TSA PreCheck, once every 4 years.", 4),
+    cu("amex_platinum", 13, "Lounge Access (Centurion + Priority Pass)", 50, "visit", 12, 45, "Centurion Lounges + Priority Pass + Delta SkyClub (when flying Delta). Set visits/yr and what a visit is genuinely worth to you — usually well under the ~$50 day-pass sticker."),
+    cu("amex_platinum", 14, "FHR / THC Stay Perks", 150, "stay", 2, 75, "On-property Fine Hotels + Resorts perks ON TOP OF the credit: free breakfast for two, ~$100 experience credit, room upgrade, late checkout. Per qualifying stay."),
+    // Note: Saks credit omitted — Amex is ending it July 1, 2026 (Saks bankruptcy); replacement TBD.
+
+    // ---- Chase Sapphire Reserve ($795) — 2026 post-refresh ----
+    cb("csr", 1, "Annual Travel Credit", 300, "annual", "offset", 100, "Auto-applied to first travel purchases each cardmember year; broad travel definition. No activation."),
+    cb("csr", 2, "The Edit Hotel Credit", 500, "annual", "offset", 70, "Up to $500/yr (max $250 per booking) on prepaid 2+ night stays at The Edit via Chase Travel. 2026 change: fully flexible — the old Jan–Jun / Jul–Dec windows are gone."),
+    cb("csr", 3, "Dining Credit (Exclusive Tables)", 150, "semiannual", "offset", 80, "Up to $150 per half-year (Jan–Jun / Jul–Dec) at Sapphire Reserve Exclusive Tables. No rollover."),
+    cb("csr", 4, "StubHub / viagogo Credit", 150, "semiannual", "induced", 50, "Up to $150 per half-year on StubHub/viagogo event tickets; activation required."),
+    cb("csr", 5, "Apple TV+ & Apple Music", 250, "annual", "induced", 60, "Complimentary Apple TV+ & Music (~$250/yr value); activate each service; through 6/22/2027."),
+    cb("csr", 6, "Lyft Credit", 10, "monthly", "offset", 90, "$10 in-app Lyft credit each month; activation required; forfeits monthly."),
+    cb("csr", 7, "DoorDash Promo Credits", 25, "monthly", "induced", 50, "Monthly $5 restaurant + two $10 non-restaurant promos; requires active DashPass; forfeits monthly."),
+    cb("csr", 8, "DashPass Membership", 120, "annual", "induced", 50, "Complimentary DashPass ($0 delivery fees); activate by 12/31/2027. Enables the monthly promos."),
+    cb("csr", 9, "Peloton Credit", 10, "monthly", "induced", 50, "$10/mo on a Peloton membership; through 12/31/2027."),
+    cb("csr", 10, "Global Entry / TSA / NEXUS", 120, "multi_year", "offset", 100, "Application-fee reimbursement once every 4 years.", 4),
+    cu("csr", 11, "Lounge Access (Priority Pass + Sapphire Lounges)", 50, "visit", 10, 45, "Priority Pass Select + Chase Sapphire Lounges (incl. by The Club). Set visits/yr and what a visit is genuinely worth to you."),
+    // Note: $75k-spend milestone credits (Shops at Chase $250, Southwest $500) and the 2026-only bonus
+    // hotel credit ($250) are excluded — conditional / one-off, not guaranteed annual value.
+
+    // ---- Marriott Bonvoy Brilliant ($650) ----
+    cb("bonvoy_brilliant", 1, "Dining Credit", 25, "monthly", "offset", 100, "$25/mo dining statement credit worldwide; automatic; no monthly rollover."),
+    cb("bonvoy_brilliant", 2, "Annual Free Night Award", 680, "annual", "induced", 65, "Free Night Award up to 85,000 pts/night after the renewal anniversary; +25k top-up allowed. Valued at 0.8¢/pt."),
+    cb("bonvoy_brilliant", 3, "Property Credit (Ritz-Carlton / St. Regis)", 100, "annual", "induced", 50, "Up to $100 (dining/spa) on a 2-night paid stay at Ritz-Carlton or St. Regis booked direct."),
+    cb("bonvoy_brilliant", 4, "Global Entry / TSA PreCheck", 120, "multi_year", "offset", 100, "Application-fee reimbursement once every 4 years.", 4),
+    cu("bonvoy_brilliant", 5, "Marriott Platinum Elite Status", 50, "night", 10, 70, "Suite/room upgrades, free breakfast, 4pm checkout, 50% bonus points — realized per paid Marriott night. Set nights/yr and your value per night."),
+    cu("bonvoy_brilliant", 6, "Priority Pass Lounge Access", 40, "visit", 6, 40, "Unlimited Priority Pass lounge visits (lounges only — no restaurant credit). Set visits/yr and what a visit is worth to you."),
+    // Note: 25 Elite Night Credits omitted — progression toward a higher tier, not a per-year dollar value.
+  ];
+
+  return { catalog, catalog_benefits };
+})();
+</script>
+
+<!-- ============================================================= -->
+<!-- CLOUD SYNC — pure mapping + decision logic (no network here).   -->
+<!-- The Supabase publishable key is safe to ship in the page; every -->
+<!-- row is guarded by owner-only Row Level Security server-side.    -->
+<!-- ============================================================= -->
+<script>
+const PERQ_SUPABASE = {
+  url: "https://umimaxkucnugmkifenyg.supabase.co",
+  key: "sb_publishable_1wJlFgMwGiOwb7-viFNfeg_qczcRsBx",
+};
+
+const CloudSync = (function () {
+  // Local held rows carry whatever the app accumulates (_reconciled flags,
+  // future fields). The cloud schema is the contract — map to exactly its
+  // columns, nothing more, so a stray local field can never break a push.
+  function cardRow(c, user_id, stamp) {
+    return {
+      id: c.id, user_id,
+      card_catalog_id: c.card_catalog_id, name: c.name,
+      issuer: c.issuer == null ? null : c.issuer,
+      network: c.network == null ? null : c.network,
+      nickname: c.nickname == null ? null : c.nickname,
+      annual_fee: Engine.num(c.annual_fee),
+      added_at: c.added_at || null,
+      updated_at: stamp,
+    };
+  }
+  function benefitRow(b, user_id, stamp) {
+    return {
+      id: b.id, user_id, held_card_id: b.held_card_id,
+      catalog_benefit_id: b.catalog_benefit_id || null,
+      name: b.name,
+      face_value: b.face_value == null ? null : Engine.num(b.face_value),
+      reset_cadence: b.reset_cadence || null,
+      multi_year_years: b.multi_year_years == null ? null : b.multi_year_years,
+      value_type: b.value_type || null,
+      realization_rate: b.realization_rate == null ? null : Engine.num(b.realization_rate),
+      unit_label: b.unit_label == null ? null : b.unit_label,
+      expected_units: b.expected_units == null ? null : Engine.num(b.expected_units),
+      note: b.note == null ? null : b.note,
+      used: !!b.used,
+      used_period_key: b.used_period_key == null ? null : b.used_period_key,
+      sort_order: b.sort_order == null ? null : b.sort_order,
+      updated_at: stamp,
+    };
+  }
+  function rowsFromDb(db, user_id, stamp) {
+    return {
+      cards: db.held_cards.map(c => cardRow(c, user_id, stamp)),
+      benefits: db.held_benefits.map(b => benefitRow(b, user_id, stamp)),
+    };
+  }
+
+  // Cloud rows -> local db shape. Catalog tables stay client-side (SEED is
+  // their source of truth); caller runs syncSeedCatalog + reconcileHeldBenefits
+  // on the result, same as a file import.
+  function dbFromRows(cards, benefits, schemaVersion) {
+    const stripCard = (r) => ({
+      id: r.id, card_catalog_id: r.card_catalog_id, name: r.name, issuer: r.issuer,
+      network: r.network, nickname: r.nickname, annual_fee: r.annual_fee, added_at: r.added_at,
+    });
+    const stripBenefit = (r) => ({
+      id: r.id, held_card_id: r.held_card_id, catalog_benefit_id: r.catalog_benefit_id,
+      name: r.name, face_value: r.face_value, reset_cadence: r.reset_cadence,
+      multi_year_years: r.multi_year_years, value_type: r.value_type,
+      realization_rate: r.realization_rate, unit_label: r.unit_label,
+      expected_units: r.expected_units, note: r.note == null ? "" : r.note,
+      used: !!r.used, used_period_key: r.used_period_key, sort_order: r.sort_order,
+    });
+    return {
+      schema_version: schemaVersion,
+      catalog: [], catalog_benefits: [],
+      held_cards: (cards || []).map(stripCard),
+      held_benefits: (benefits || []).map(stripBenefit),
+    };
+  }
+
+  // What should happen at sign-in / load, given where both sides stand?
+  //   cloudStamp       sync_meta.updated_at in the cloud (null = cloud empty)
+  //   knownCloudStamp  the cloud stamp this device last saw (null = never synced here)
+  //   everSynced       this device has completed a sync before
+  //   localDirty       local changes since this device's last sync
+  //   localChangedAt   when the last local change happened (for last-write-wins)
+  // Returns "push" | "pull" | "none" | "first-sync-conflict".
+  // first-sync-conflict = this device never synced, has its own edits, AND the
+  // cloud already has data — the one case where silently picking a side could
+  // destroy real data, so the UI must ask.
+  function syncDecision(s) {
+    if (!s.cloudStamp) return "push";
+    if (!s.everSynced) return s.localDirty ? "first-sync-conflict" : "pull";
+    const cloudMoved = s.cloudStamp !== s.knownCloudStamp;
+    if (cloudMoved && s.localDirty) {
+      // both sides moved: last write wins
+      return new Date(s.localChangedAt || 0) >= new Date(s.cloudStamp) ? "push" : "pull";
+    }
+    if (cloudMoved) return "pull";
+    if (s.localDirty) return "push";
+    return "none";
+  }
+
+  return { cardRow, benefitRow, rowsFromDb, dbFromRows, syncDecision };
+})();
+</script>
+
+<!-- ============================================================= -->
+<!-- React app                                                      -->
+<!-- ============================================================= -->
+<!-- Supply-chain hardening (2026-07): every CDN dependency is pinned to an
+     EXACT version with an SRI hash. A CDN rollover or tampered file now fails
+     closed (browser refuses to run it) instead of silently shipping new code —
+     that is what broke the app for a week in June 2026. To bump a version:
+     change the URL, then recompute the hash from the exact pinned URL:
+       curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+     (The Google Fonts stylesheet above carries no SRI: Google serves
+     UA-dependent CSS so no single hash is valid; worst case is a fallback
+     font, not code execution.) -->
+<script crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+        integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+<script crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+        integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
+<script crossorigin="anonymous" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.0/dist/umd/supabase.min.js"
+        integrity="sha384-DjOvX/sJLsmbMrw4wTvf6l3kiGBjdxyOO6X2MTFwOOXGkjN/mE08BoDzrpaaIjil"></script>
+<!-- Pinned to 7.x: its react preset defaults to the classic React.createElement
+     runtime. Babel 8's preset defaults to the automatic runtime, which emits a
+     bare `import "react/jsx-runtime"` — illegal in a plain (non-module) <script>
+     and aborts the whole app. Do not drop this pin or bump to @8 without also
+     forcing { runtime: 'classic' }. -->
+<script crossorigin="anonymous" src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"
+        integrity="sha384-ezQ6HS3FLspd9te19o2McUV6FAK091+GG7KO54f/R8DKgCDi7fULhapNrd5LY+vG"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+const SCHEMA_VERSION = 1;
+const STORAGE_KEY = "perq.db.v1";
+// Shell builds (the public GitHub Pages copy) start EMPTY — no cards pre-held.
+// tools/publish_shell.py flips this to true when it builds the public artifact;
+// local/file:// builds keep the seeded default below.
+const PERQ_SHELL = true;
+
+// ---------- persistence ----------
+function uuid() {
+  return (crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// Instantiate one catalog template into a held card + its held benefits.
+// Held benefits COPY the template's values at add-time so later catalog
+// corrections never silently overwrite the user's tuned tracking.
+// Shared by addCard (live catalog) and the default seed (SEED catalog).
+function heldBenefitFromTemplate(cardId, t) {
+  return {
+    id: uuid(), held_card_id: cardId, catalog_benefit_id: t.id,
+    name: t.name, face_value: t.face_value, reset_cadence: t.reset_cadence,
+    multi_year_years: t.multi_year_years || null,
+    value_type: t.default_value_type, realization_rate: t.default_realization_rate,
+    unit_label: t.unit_label || null, expected_units: (t.expected_units != null ? t.expected_units : null),
+    note: t.default_note || "", used: false, used_period_key: null, sort_order: t.sort_order,
+  };
+}
+
+function instantiateCard(cat, catalogBenefits) {
+  const cardId = uuid();
+  const card = {
+    id: cardId, card_catalog_id: cat.id, name: cat.name, issuer: cat.issuer,
+    network: cat.network, nickname: null, annual_fee: cat.annual_fee, added_at: new Date().toISOString(),
+  };
+  const benefits = catalogBenefits
+    .filter(b => b.card_catalog_id === cat.id)
+    .map(t => heldBenefitFromTemplate(cardId, t));
+  return { card, benefits };
+}
+
+// Forward-fill: when the catalog gains a benefit AFTER a card is already held
+// (e.g. the lounge / status usage rows added in a later version), add the
+// missing rows to each held card on load. Matched by catalog_benefit_id, so
+// benefits the user already has — and any tuning on them — are left untouched.
+// Returns the count added so the UI can flag what changed.
+function reconcileHeldBenefits(db) {
+  let added = 0;
+  for (const card of db.held_cards) {
+    const have = new Set(
+      db.held_benefits
+        .filter(b => b.held_card_id === card.id)
+        .map(b => b.catalog_benefit_id)
+        .filter(Boolean)
+    );
+    const templates = db.catalog_benefits.filter(t => t.card_catalog_id === card.card_catalog_id);
+    for (const t of templates) {
+      if (have.has(t.id)) continue;
+      db.held_benefits.push(heldBenefitFromTemplate(card.id, t));
+      added++;
+    }
+  }
+  db._reconciled_added = added;
+  return db;
+}
+
+// Default starting state: catalog seeded and — in local builds — all catalog
+// cards pre-instantiated as held, so the app opens to a populated dashboard
+// that can be tuned immediately rather than an empty screen. Shell builds
+// (PERQ_SHELL) start with no held cards: sign in, import a backup, or add
+// from the catalog. Removing a card and reloading will NOT re-add it (held
+// state persists in localStorage); only an explicit "Reset to seed" returns
+// to this default.
+function freshDbFromSeed() {
+  const db = {
+    schema_version: SCHEMA_VERSION,
+    catalog: SEED.catalog.map(c => ({ ...c })),
+    catalog_benefits: SEED.catalog_benefits.map(b => ({ ...b })),
+    held_cards: [],
+    held_benefits: [],
+  };
+  if (!PERQ_SHELL) {
+    for (const cat of SEED.catalog) {
+      const { card, benefits } = instantiateCard(cat, SEED.catalog_benefits);
+      db.held_cards.push(card);
+      db.held_benefits.push(...benefits);
+    }
+  }
+  return db;
+}
+
+// The catalog is a MAINTAINED library — SEED is its single source of truth.
+// On every load/import we re-sync catalog templates from SEED so corrections
+// (a fixed issuer, a changed credit amount, a new benefit) always reach the
+// user. Held cards/benefits copied their values at add-time, so the user's
+// actual tracking data is never touched by this sync.
+function syncSeedCatalog(db) {
+  db.catalog = SEED.catalog.map(c => ({ ...c }));
+  db.catalog_benefits = SEED.catalog_benefits.map(b => ({ ...b }));
+  return db;
+}
+
+function loadDb() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return freshDbFromSeed();
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.held_cards)) return freshDbFromSeed();
+    // ensure all four tables exist
+    parsed.catalog = parsed.catalog || [];
+    parsed.catalog_benefits = parsed.catalog_benefits || [];
+    parsed.held_cards = parsed.held_cards || [];
+    parsed.held_benefits = parsed.held_benefits || [];
+    return reconcileHeldBenefits(syncSeedCatalog(parsed));
+  } catch (e) {
+    console.error("[Perq] load failed, starting fresh:", e);
+    return freshDbFromSeed();
+  }
+}
+
+function saveDb(db) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+  catch (e) { console.error("[Perq] save failed:", e); }
+}
+
+// ---------- auto-save to a real file (File System Access API) ----------
+// Browsers can't silently write to disk from a double-clicked HTML file — that's
+// a hard sandbox rule. The File System Access API is the one sanctioned path:
+// the user picks a file ONCE (a real click / permission grant), and from then on
+// the app writes to that exact file with no further dialogs. Chrome/Edge only;
+// Safari/Firefox fall back to the manual Export button. The chosen file's handle
+// is remembered in IndexedDB so a later session can resume with a single click.
+const FSA_SUPPORTED = typeof window !== "undefined" && typeof window.showSaveFilePicker === "function";
+const IDB_NAME = "perq-fs", IDB_STORE = "handles", IDB_KEY = "autosave";
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+async function idbSaveHandle(handle) {
+  try {
+    const db = await idbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(handle, IDB_KEY);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch (e) { /* best-effort — resume just won't be offered next time */ }
+}
+async function idbLoadHandle() {
+  try {
+    const db = await idbOpen();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const r = tx.objectStore(IDB_STORE).get(IDB_KEY);
+      r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error);
+    });
+  } catch (e) { return null; }
+}
+async function idbClearHandle() {
+  try {
+    const db = await idbOpen();
+    await new Promise((res) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(IDB_KEY);
+      tx.oncomplete = res; tx.onerror = res;
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function serializeDb(db) {
+  return JSON.stringify({ ...db, meta: { app: "perq", exported_at: new Date().toISOString() } }, null, 2);
+}
+
+// ---------- cloud sync bookkeeping ----------
+// Per-device sync state: when this device last changed data, when it last
+// synced, and the cloud stamp it last saw. Drives CloudSync.syncDecision.
+const SYNC_KEY = "perq.sync.v1";
+function loadSyncState() {
+  try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch (e) { return {}; }
+}
+function saveSyncState(s) {
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(s)); } catch (e) { /* best-effort */ }
+}
+function syncErrorText(e) {
+  const m = e && (e.message || e.error_description || e.msg);
+  return m ? String(m) : "Sync failed — check your connection.";
+}
+// PostgREST `in` list for text ids (ids are uuid / base36 — no quoting hazards).
+function pgIdList(ids) { return "(" + ids.map(id => '"' + id + '"').join(",") + ")"; }
+
+async function writeHandle(handle, db) {
+  const writable = await handle.createWritable();
+  await writable.write(serializeDb(db));
+  await writable.close();
+}
+
+// ---------- formatting ----------
+const money = (n, dec = 0) =>
+  "$" + (Math.round(n * (dec ? 100 : 1)) / (dec ? 100 : 1)).toLocaleString("en-US",
+    { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+const CADENCE_LABEL = { monthly: "monthly", quarterly: "quarterly", semiannual: "semi-annual", annual: "annual", multi_year: "multi-year" };
+
+function resetLabel(b, today) {
+  const d = Engine.daysToReset(b.reset_cadence, today, b.multi_year_years);
+  if (b.reset_cadence === "multi_year") {
+    const yrs = (d / 365);
+    return yrs >= 1 ? `resets in ~${Math.round(yrs * 10) / 10} yr` : `resets in ${d} d`;
+  }
+  if (d === 0) return "resets today";
+  if (d === 1) return "resets tomorrow";
+  return `resets in ${d} days`;
+}
+
+// ---------- small UI atoms ----------
+function Switch({ on, onChange, label }) {
+  return (
+    <div className={"switch" + (on ? " on" : "")} onClick={onChange} role="switch" aria-checked={on}>
+      <div className="track"><div className="knob" /></div>
+      <span>{on ? "Used" : (label || "Used")}</span>
+    </div>
+  );
+}
+
+function Seg({ value, onChange }) {
+  return (
+    <div className="seg" role="tablist" aria-label="value type">
+      <button className={value === "offset" ? "on" : ""} onClick={() => onChange("offset")} title="Reimburses spend you'd do anyway — counts at full face value">Offset</button>
+      <button className={value === "induced" ? "on" : ""} onClick={() => onChange("induced")} title="Only valuable if you change behavior — discounted by realization rate">Induced</button>
+      <button className={value === "usage" ? "on" : ""} onClick={() => onChange("usage")} title="Per-use perk (lounge, status, stay perks) — value = units/yr × your value per use">Usage</button>
+    </div>
+  );
+}
+
+// ---------- benefit row ----------
+// When the user switches a benefit's value type, seed the fields the new type
+// needs so it computes immediately (usage needs units + a unit label).
+function coerceType(b, v) {
+  const patch = { value_type: v };
+  if (v === "usage") {
+    if (b.expected_units == null) patch.expected_units = 1;
+    if (!b.unit_label) patch.unit_label = "use";
+    if (b.realization_rate == null) patch.realization_rate = 100;
+  }
+  return patch;
+}
+
+function BenefitRow({ b, today, onPatch }) {
+  const isUsage = b.value_type === "usage";
+  const usedNow = !isUsage && Engine.isUsedNow(b, today);
+  const eff = Engine.annualEffective(b);
+  const nom = Engine.annualNominal(b);
+  const dToReset = Engine.daysToReset(b.reset_cadence, today, b.multi_year_years);
+  const soon = Engine.isExpiringSoon(b, today);
+  const units = b.expected_units == null ? 0 : b.expected_units;
+  const unit = b.unit_label || "use";
+  const unitsLabel = `${units} ${units === 1 ? unit : unit + "s"}/yr`;
+
+  const toggleUsed = () => {
+    if (usedNow) onPatch({ used: false, used_period_key: null });
+    else {
+      const { key } = Engine.currentPeriod(b.reset_cadence, today, b.multi_year_years);
+      onPatch({ used: true, used_period_key: key });
+    }
+  };
+
+  return (
+    <div className="benefit">
+      <div className="b-main">
+        <div className="b-name">
+          <span>{b.name}</span>
+          <span className="b-face">{money(b.face_value, b.face_value % 1 ? 2 : 0)}{isUsage ? ` / ${unit}` : ""}</span>
+          <span className="cadence">{isUsage ? `per ${unit}` : CADENCE_LABEL[b.reset_cadence]}</span>
+          {usedNow && <span className="used-flag">✓ used this period</span>}
+        </div>
+        {isUsage ? (
+          <div className="b-reset">
+            {unitsLabel} × {money(b.face_value)} × {Engine.clampRate(b.realization_rate)}% = <b style={{ color: "var(--text)" }}>{money(eff)}/yr</b> · {money(nom)}/yr at sticker
+          </div>
+        ) : (
+          <div className="b-reset" style={soon && !usedNow ? { color: dToReset === 0 ? "var(--bad)" : "var(--warn)", fontWeight: 600 } : null}>
+            {resetLabel(b, today)}{nom !== b.face_value ? ` · ${money(nom)}/yr face` : ""}
+          </div>
+        )}
+        <div className="b-note">
+          <textarea
+            placeholder="Note…"
+            value={b.note || ""}
+            onChange={(e) => onPatch({ note: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="b-controls">
+        {isUsage ? (
+          <div className="stepper" title="How many per year you realistically use">
+            <button onClick={() => onPatch({ expected_units: Math.max(0, units - 1) })} aria-label="one fewer">−</button>
+            <span className="units">{unitsLabel}</span>
+            <button onClick={() => onPatch({ expected_units: units + 1 })} aria-label="one more">+</button>
+          </div>
+        ) : (
+          <Switch on={usedNow} onChange={toggleUsed} />
+        )}
+        <Seg value={b.value_type} onChange={(v) => onPatch(coerceType(b, v))} />
+        {(b.value_type === "induced" || isUsage) && (
+          <div className="slider" title={isUsage ? "How much of the per-unit sticker value you actually capture" : "Realization rate — how much of the face value you actually capture"}>
+            <input type="range" min="0" max="100" value={b.realization_rate}
+              onChange={(e) => onPatch({ realization_rate: parseInt(e.target.value, 10) })} />
+            <span className="pct">{b.realization_rate}%</span>
+          </div>
+        )}
+        <div className="b-eff">
+          <div className="e-val">{money(eff)}</div>
+          <div className="e-lbl">eff / yr</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- card section ----------
+function CardSection({ card, benefits, today, onPatchBenefit, onRemove }) {
+  const [open, setOpen] = useState(true);
+  const t = Engine.cardTotals(card, benefits);
+  const pos = t.net >= 0;
+  return (
+    <div className="card">
+      <div className="card-head" onClick={() => setOpen(o => !o)}>
+        <span className={"caret" + (open ? " open" : "")}>▶</span>
+        <div className="card-title">
+          <div className="name">{card.nickname || card.name}</div>
+          <div className="issuer">{card.issuer} · fee {money(card.annual_fee)}</div>
+        </div>
+        <div className="verdict">
+          <div className={"net " + (pos ? "pos" : "neg")}>{pos ? "+" : "−"}{money(Math.abs(t.net))}</div>
+          <div className={"tag " + (pos ? "pos" : "neg")}>{pos ? "paying for itself" : "not worth the fee"}</div>
+        </div>
+        <button className="ghost tiny danger" onClick={(e) => { e.stopPropagation(); onRemove(card); }} title="Remove this card (catalog stays intact)">Remove</button>
+      </div>
+      {open && (
+        <div className="card-body">
+          <div className="card-sub">
+            <span>Nominal <b>{money(t.nominal)}/yr</b></span>
+            <span>Effective <b>{money(t.effective)}/yr</b></span>
+            <span>Annual fee <b>{money(t.fee)}</b></span>
+            <span>Net <b style={{ color: pos ? "var(--good)" : "var(--bad)" }}>{pos ? "+" : "−"}{money(Math.abs(t.net))}</b></span>
+          </div>
+          {benefits.map(b => (
+            <BenefitRow key={b.id} b={b} today={today}
+              onPatch={(patch) => onPatchBenefit(b.id, patch)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- add-card modal ----------
+function AddCardModal({ db, onAdd, onClose }) {
+  const benefitCount = (catId) => db.catalog_benefits.filter(b => b.card_catalog_id === catId).length;
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Add a card</h2>
+          <button className="ghost tiny" onClick={onClose}>✕ Close</button>
+        </div>
+        <div className="modal-body">
+          {db.catalog.slice().sort((a, b) => a.sort_order - b.sort_order).map(c => (
+            <div className="pick" key={c.id}>
+              <div>
+                <div className="p-name">{c.name}</div>
+                <div className="p-meta">{c.issuer} · fee {money(c.annual_fee)} · {benefitCount(c.id)} benefits</div>
+              </div>
+              <button className="primary tiny" onClick={() => onAdd(c)}>+ Add</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- account / phone-sync modal ----------
+function AccountModal({ session, cloud, onSignIn, onSignUp, onSignOut, onSyncNow, onClose }) {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { text, err }
+
+  async function run(fn, okText) {
+    if (!email || !pw) { setMsg({ text: "Email and password, both.", err: true }); return; }
+    setBusy(true); setMsg(null);
+    const err = await fn(email.trim(), pw);
+    setBusy(false);
+    if (err) setMsg({ text: err, err: true });
+    else if (okText) setMsg({ text: okText, err: false });
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>{session ? "Cloud sync" : "Sync across devices"}</h2>
+          <button className="ghost tiny" onClick={onClose}>✕ Close</button>
+        </div>
+        <div className="modal-body">
+          {session ? (
+            <div>
+              <div className="account-whoami">
+                Signed in as <b>{session.user.email}</b>
+                {cloud.last ? <> · last synced {cloud.last.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</> : null}
+              </div>
+              {cloud.error && <div className="account-msg err" style={{ padding: "6px 4px" }}>{cloud.error}</div>}
+              <div className="account-msg" style={{ padding: "4px 4px 10px" }}>
+                Every change on this device is pushed to your private cloud copy, and other
+                signed-in devices pick it up when they open. Sign in with the same account
+                on your phone's browser to get the same dashboard there.
+              </div>
+              <div className="account-form" style={{ paddingTop: 0 }}>
+                <div className="row">
+                  <button onClick={onSyncNow} disabled={busy}>⟳ Sync now</button>
+                  <button className="danger" onClick={onSignOut} disabled={busy}>Sign out</button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="account-form">
+              <div className="account-msg">
+                One account, your data on every device — sign in here and on your phone.
+                Data is stored privately in the cloud (row-level security, only your login can read it).
+                This device keeps working offline; local + file auto-save stay untouched.
+              </div>
+              <input type="email" placeholder="Email" value={email} autoComplete="username"
+                onChange={(e) => setEmail(e.target.value)} />
+              <input type="password" placeholder="Password" value={pw} autoComplete="current-password"
+                onChange={(e) => setPw(e.target.value)} />
+              {msg && <div className={"account-msg" + (msg.err ? " err" : "")}>{msg.text}</div>}
+              <div className="row">
+                <button className="primary" disabled={busy} onClick={() => run(onSignIn)}>{busy ? "…" : "Sign in"}</button>
+                <button disabled={busy} onClick={() => run(onSignUp, "Account created. If sign-in doesn't start automatically, confirm via the email we just sent, then sign in.")}>Create account</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- root ----------
+function App() {
+  const [db, setDb] = useState(loadDb);
+  const [showAdd, setShowAdd] = useState(false);
+  const [tests] = useState(() => runEngineSelfTests());
+  const today = useMemo(() => new Date(), []);
+  const fileRef = useRef(null);
+
+  // auto-save-to-file state (File System Access API)
+  const [fileName, setFileName] = useState(null);   // active linked file
+  const [canResume, setCanResume] = useState(null);  // remembered file to re-grant
+  const [fsStatus, setFsStatus] = useState(null);    // 'saving' | 'saved' | 'error'
+  const [lastSave, setLastSave] = useState(null);
+  const [lsFlash, setLsFlash] = useState(false);     // brief in-browser save flash
+  const handleRef = useRef(null);
+  const saveTimer = useRef(null);
+
+  // cloud sync state (Supabase). The library loads from a CDN — if it didn't
+  // (offline first paint), the feature simply stays hidden this session.
+  const CLOUD_AVAILABLE = typeof window.supabase !== "undefined" && window.supabase.createClient;
+  const [session, setSession] = useState(null);
+  const [cloud, setCloud] = useState({ status: "idle", last: null, error: null }); // idle|syncing|synced|error
+  const [showAccount, setShowAccount] = useState(false);
+  const sbRef = useRef(null);
+  const dbRef = useRef(db); dbRef.current = db;
+  const sessionRef = useRef(null); sessionRef.current = session;
+  const applyingCloud = useRef(false); // a pull is landing — don't mark it dirty
+  const bootRef = useRef(true);        // initial mount isn't a user change
+  const pushTimer = useRef(null);
+  const syncChain = useRef(Promise.resolve()); // single-flight: pushes/pulls never interleave
+  const authGen = useRef(0);           // bumped on sign-out so stragglers drop their bookkeeping
+
+  // On load, see if a file was linked in a prior session. If permission is still
+  // granted, resume silently; otherwise offer a one-click Resume (browsers require
+  // a fresh gesture to re-grant file write permission).
+  useEffect(() => {
+    if (!FSA_SUPPORTED) return;
+    (async () => {
+      const h = await idbLoadHandle();
+      if (!h) return;
+      let perm = "prompt";
+      try { perm = await h.queryPermission({ mode: "readwrite" }); } catch (e) { /* older API */ }
+      if (perm === "granted") { handleRef.current = h; setFileName(h.name); }
+      else setCanResume(h.name);
+    })();
+  }, []);
+
+  // Every change: always persist to localStorage (instant, reliable), and if a
+  // file is linked, debounce-write the same JSON to it so the file mirrors state.
+  useEffect(() => {
+    saveDb(db);
+    setLsFlash(true);
+    const clr = setTimeout(() => setLsFlash(false), 800);
+    if (handleRef.current) {
+      setFsStatus("saving");
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(async () => {
+        try { await writeHandle(handleRef.current, db); setFsStatus("saved"); setLastSave(new Date()); }
+        catch (e) { console.error("[Perq] file auto-save failed:", e); setFsStatus("error"); }
+      }, 600);
+    }
+    return () => clearTimeout(clr);
+  }, [db]);
+
+  async function linkAutoSave() {
+    try {
+      const h = await window.showSaveFilePicker({
+        suggestedName: "perq-data.json",
+        types: [{ description: "Perq data", accept: { "application/json": [".json"] } }],
+      });
+      handleRef.current = h; setFileName(h.name); setCanResume(null);
+      await writeHandle(h, db); setFsStatus("saved"); setLastSave(new Date());
+      await idbSaveHandle(h);
+    } catch (e) {
+      if (e && e.name === "AbortError") return;            // user cancelled the picker
+      console.error("[Perq] could not link file:", e);
+      alert("Could not link a file for auto-save.");
+    }
+  }
+
+  async function resumeAutoSave() {
+    try {
+      const h = await idbLoadHandle();
+      if (!h) { setCanResume(null); return; }
+      const perm = await h.requestPermission({ mode: "readwrite" });
+      if (perm !== "granted") { alert("Permission denied — auto-save not resumed."); return; }
+      handleRef.current = h; setFileName(h.name); setCanResume(null);
+      await writeHandle(h, db); setFsStatus("saved"); setLastSave(new Date());
+    } catch (e) { console.error("[Perq] resume failed:", e); }
+  }
+
+  async function stopAutoSave() {
+    handleRef.current = null; setFileName(null); setFsStatus(null); setCanResume(null);
+    await idbClearHandle();
+  }
+
+  // ---------- cloud sync ----------
+  useEffect(() => {
+    if (!CLOUD_AVAILABLE) return;
+    const client = window.supabase.createClient(PERQ_SUPABASE.url, PERQ_SUPABASE.key);
+    sbRef.current = client;
+    client.auth.getSession().then(({ data }) => setSession((data && data.session) || null));
+    const { data: sub } = client.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // a session appeared (sign-in, or restored on load): reconcile with the cloud
+  useEffect(() => {
+    if (session && sbRef.current) startupSync();
+  }, [session && session.user.id]);
+
+  // Serialize all cloud operations: two interleaved pushes (each is 4 network
+  // round-trips) could land an old upsert after a newer delete and resurrect
+  // deleted rows on every device. One at a time, always.
+  function runExclusive(fn) {
+    const run = syncChain.current.catch(() => {}).then(fn);
+    syncChain.current = run.catch(() => {});
+    return run;
+  }
+
+  // Debounced-change path. A blind push from a long-lived tab would clobber
+  // edits another device synced in the meantime — so before pushing, re-check
+  // whether the cloud moved past what this device last saw; if it did, fall
+  // back to the full decision matrix (pull / LWW / ask) instead.
+  async function pushCloudChecked() {
+    const client = sbRef.current, sess = sessionRef.current;
+    if (!client || !sess) return;
+    const { data: meta, error } = await client.from("sync_meta").select("updated_at").maybeSingle();
+    if (error) throw error;
+    const cloudStamp = (meta && meta.updated_at) || null;
+    if (cloudStamp !== (loadSyncState().known_cloud_stamp || null)) return startupSyncInner();
+    return pushCloud(dbRef.current);
+  }
+
+  async function pushCloud(current) {
+    const client = sbRef.current, sess = sessionRef.current;
+    if (!client || !sess) return;
+    const gen = authGen.current;
+    setCloud(c => ({ status: "syncing", last: c.last, error: null }));
+    const stamp = new Date().toISOString();
+    const changedAt = (loadSyncState().last_change) || null;
+    const { cards, benefits } = CloudSync.rowsFromDb(current, sess.user.id, stamp);
+
+    // FK order: cards up first, stale benefits gone before stale cards.
+    if (cards.length) {
+      const { error } = await client.from("held_cards").upsert(cards);
+      if (error) throw error;
+    }
+    if (benefits.length) {
+      const { error } = await client.from("held_benefits").upsert(benefits);
+      if (error) throw error;
+    }
+    let q = client.from("held_benefits").delete().eq("user_id", sess.user.id);
+    if (benefits.length) q = q.not("id", "in", pgIdList(benefits.map(b => b.id)));
+    const delB = await q; if (delB.error) throw delB.error;
+    let qc = client.from("held_cards").delete().eq("user_id", sess.user.id);
+    if (cards.length) qc = qc.not("id", "in", pgIdList(cards.map(c => c.id)));
+    const delC = await qc; if (delC.error) throw delC.error;
+    const meta = await client.from("sync_meta").upsert({ user_id: sess.user.id, updated_at: stamp, device: navigator.platform || "device" });
+    if (meta.error) throw meta.error;
+
+    // If sign-out happened mid-push, don't write account A's stamps into the
+    // cleared (or account B's) sync state.
+    if (gen === authGen.current) {
+      const st = loadSyncState();
+      saveSyncState({ ...st, known_cloud_stamp: stamp, last_synced: stamp, ever_synced: true,
+        // only clear the dirty marker if nothing changed while we were pushing
+        last_change: st.last_change === changedAt ? null : st.last_change });
+    }
+    setCloud({ status: "synced", last: new Date(), error: null });
+  }
+
+  async function pullCloud() {
+    const client = sbRef.current;
+    const gen = authGen.current;
+    clearTimeout(pushTimer.current); // a stale debounce must not push over what we're about to adopt
+    setCloud(c => ({ status: "syncing", last: c.last, error: null }));
+    const [cardsRes, bensRes, metaRes] = await Promise.all([
+      client.from("held_cards").select("*").order("added_at"),
+      client.from("held_benefits").select("*"),
+      client.from("sync_meta").select("updated_at").maybeSingle(),
+    ]);
+    if (cardsRes.error) throw cardsRes.error;
+    if (bensRes.error) throw bensRes.error;
+    if (metaRes.error) throw metaRes.error;
+    const next = reconcileHeldBenefits(syncSeedCatalog(
+      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION)));
+    applyingCloud.current = true;
+    setDb(next);
+    if (gen === authGen.current) {
+      const stamp = (metaRes.data && metaRes.data.updated_at) || new Date().toISOString();
+      saveSyncState({ known_cloud_stamp: stamp, last_synced: new Date().toISOString(), ever_synced: true, last_change: null });
+    }
+    setCloud({ status: "synced", last: new Date(), error: null });
+  }
+
+  async function startupSyncInner() {
+    const client = sbRef.current;
+    setCloud(c => ({ status: "syncing", last: c.last, error: null }));
+    const { data: meta, error } = await client.from("sync_meta").select("updated_at").maybeSingle();
+    if (error) throw error;
+    const st = loadSyncState();
+    let dec = CloudSync.syncDecision({
+      cloudStamp: meta && meta.updated_at,
+      knownCloudStamp: st.known_cloud_stamp || null,
+      everSynced: !!st.ever_synced,
+      localDirty: !!st.last_change && (!st.last_synced || st.last_change > st.last_synced),
+      localChangedAt: st.last_change || null,
+    });
+    if (dec === "first-sync-conflict") {
+      // The only case where silently picking a side could destroy data.
+      dec = confirm(
+        "Your account already has Perq data from another device.\n\n" +
+        "OK = use the CLOUD copy (replaces this device's data).\n" +
+        "Cancel = keep THIS device's data (replaces the cloud copy)."
+      ) ? "pull" : "push";
+      clearTimeout(pushTimer.current); // the answer decides — no stale push behind it
+    }
+    if (dec === "pull") await pullCloud();
+    else if (dec === "push") await pushCloud(dbRef.current);
+    else setCloud({ status: "synced", last: new Date(), error: null });
+  }
+
+  function startupSync() {
+    return runExclusive(startupSyncInner).catch(e => {
+      console.error("[Perq] cloud sync failed:", e);
+      setCloud({ status: "error", last: null, error: syncErrorText(e) });
+    });
+  }
+
+  // every local change: stamp it dirty; if signed in, debounce a push
+  useEffect(() => {
+    if (bootRef.current) { bootRef.current = false; return; }
+    if (applyingCloud.current) { applyingCloud.current = false; return; }
+    const st = loadSyncState();
+    st.last_change = new Date().toISOString();
+    saveSyncState(st);
+    if (sessionRef.current && sbRef.current) {
+      clearTimeout(pushTimer.current);
+      pushTimer.current = setTimeout(() => {
+        runExclusive(pushCloudChecked).catch(e => {
+          console.error("[Perq] cloud push failed:", e);
+          setCloud({ status: "error", last: null, error: syncErrorText(e) });
+        });
+      }, 1200);
+    }
+  }, [db]);
+
+  async function signInCloud(email, pw) {
+    const { error } = await sbRef.current.auth.signInWithPassword({ email, password: pw });
+    return error ? syncErrorText(error) : null;
+  }
+  async function signUpCloud(email, pw) {
+    const { error } = await sbRef.current.auth.signUp({ email, password: pw });
+    return error ? syncErrorText(error) : null;
+  }
+  async function signOutCloud() {
+    clearTimeout(pushTimer.current);
+    authGen.current++; // any in-flight push/pull drops its sync-state bookkeeping
+    await sbRef.current.auth.signOut();
+    saveSyncState({}); // a different account signing in later starts clean
+    setCloud({ status: "idle", last: null, error: null });
+    setShowAccount(false);
+  }
+
+  const benefitsByCard = useMemo(() => {
+    const m = {};
+    for (const c of db.held_cards) m[c.id] = [];
+    for (const b of db.held_benefits) (m[b.held_card_id] = m[b.held_card_id] || []).push(b);
+    for (const k in m) m[k].sort((a, b) => a.sort_order - b.sort_order);
+    return m;
+  }, [db]);
+
+  const totals = useMemo(
+    () => Engine.portfolioTotals(db.held_cards, benefitsByCard),
+    [db, benefitsByCard]
+  );
+
+  const expiring = useMemo(() => {
+    const rows = [];
+    for (const c of db.held_cards) {
+      for (const b of (benefitsByCard[c.id] || [])) {
+        if (Engine.isExpiringSoon(b, today)) {
+          rows.push({ card: c, b, d: Engine.daysToReset(b.reset_cadence, today, b.multi_year_years) });
+        }
+      }
+    }
+    return rows.sort((a, b) => a.d - b.d);
+  }, [db, benefitsByCard, today]);
+
+  // instantiate a catalog template into a held card + held benefits
+  function addCard(cat) {
+    const { card, benefits } = instantiateCard(cat, db.catalog_benefits);
+    setDb(d => ({ ...d, held_cards: [...d.held_cards, card], held_benefits: [...d.held_benefits, ...benefits] }));
+    setShowAdd(false);
+  }
+
+  function removeCard(card) {
+    if (!confirm(`Remove ${card.nickname || card.name}? Your catalog template stays intact.`)) return;
+    setDb(d => ({
+      ...d,
+      held_cards: d.held_cards.filter(c => c.id !== card.id),
+      held_benefits: d.held_benefits.filter(b => b.held_card_id !== card.id),
+    }));
+  }
+
+  function patchBenefit(id, patch) {
+    setDb(d => ({ ...d, held_benefits: d.held_benefits.map(b => b.id === id ? { ...b, ...patch } : b) }));
+  }
+
+  function exportJson() {
+    const blob = new Blob([serializeDb(db)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    a.href = url; a.download = `perq-backup-${stamp}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function importJson(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed || !Array.isArray(parsed.held_cards) || !Array.isArray(parsed.catalog)) {
+          alert("That doesn't look like a Perq backup file."); return;
+        }
+        if (!confirm("Import will replace your current data. Continue?")) return;
+        const clean = {
+          schema_version: parsed.schema_version || SCHEMA_VERSION,
+          catalog: parsed.catalog || [],
+          catalog_benefits: parsed.catalog_benefits || [],
+          held_cards: parsed.held_cards || [],
+          held_benefits: parsed.held_benefits || [],
+        };
+        setDb(reconcileHeldBenefits(syncSeedCatalog(clean)));
+      } catch (err) {
+        alert("Couldn't read that file — invalid JSON.");
+      } finally {
+        if (fileRef.current) fileRef.current.value = "";
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function resetAll() {
+    if (!confirm("Reset ALL data back to the seed catalog with no held cards? This clears your tracking.")) return;
+    setDb(freshDbFromSeed());
+  }
+
+  const heldSorted = db.held_cards.slice().sort((a, b) => (a.added_at || "").localeCompare(b.added_at || ""));
+  const netPos = totals.net >= 0;
+
+  return (
+    <div className="wrap">
+      <header className="app">
+        <div className="brand">
+          <h1>Perq<span className="dot">.</span></h1>
+          <span className="sub">credit-card benefits, honestly valued</span>
+        </div>
+        <div className="toolbar">
+          <button className="primary" onClick={() => setShowAdd(true)}>+ Add card</button>
+          {CLOUD_AVAILABLE && !session && (
+            <button className="autosave-cta" onClick={() => setShowAccount(true)}
+              title="Sign in once here and on your phone — same data everywhere">☁ Phone sync…</button>
+          )}
+          {FSA_SUPPORTED && !fileName && (
+            <button className="autosave-cta" onClick={canResume ? resumeAutoSave : linkAutoSave}
+              title={canResume ? `Re-link ${canResume} and resume auto-saving` : "Pick a .json file once; Perq then saves to it automatically on every change"}>
+              {canResume ? "⟳ Resume auto-save" : "↓ Auto-save to file…"}
+            </button>
+          )}
+          <button onClick={exportJson} title="Download a one-off backup copy now">↓ Export</button>
+          <button onClick={() => fileRef.current && fileRef.current.click()}>↑ Import</button>
+          <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={importJson} />
+        </div>
+      </header>
+
+      {session && (
+        <div className="autosave-bar" style={cloud.status === "error" ? { borderLeftColor: "var(--bad)" } : { borderLeftColor: "var(--accent)" }}>
+          <span className="as-dot" data-status={cloud.status === "syncing" ? "saving" : cloud.status === "error" ? "error" : "saved"} />
+          <span className="as-text">
+            Cloud sync · <b>{session.user.email}</b>
+            {cloud.status === "syncing" ? " · syncing…"
+              : cloud.status === "error" ? <> · <span style={{ color: "var(--bad)", fontWeight: 600 }}>{cloud.error || "sync failed"}</span></>
+              : cloud.last ? ` · synced ${cloud.last.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : " · connected"}
+          </span>
+          <button className="ghost tiny" onClick={startupSync} title="Re-check the cloud copy now">⟳ Sync</button>
+          <button className="ghost tiny" onClick={() => setShowAccount(true)}>Account</button>
+        </div>
+      )}
+
+      {fileName && (
+        <div className="autosave-bar">
+          <span className="as-dot" data-status={fsStatus || "saved"} />
+          <span className="as-text">
+            Auto-saving to <b>{fileName}</b>
+            {fsStatus === "saving" ? " · saving…" : fsStatus === "error" ? " · save failed" :
+              lastSave ? ` · saved ${lastSave.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : " · linked"}
+          </span>
+          <button className="ghost tiny" onClick={stopAutoSave} title="Stop writing to this file (localStorage keeps working)">Stop</button>
+        </div>
+      )}
+
+      {/* Dashboard totals */}
+      <div className="summary">
+        <div className="stat">
+          <div className="label">Nominal / yr</div>
+          <div className="value">{money(totals.nominal)}</div>
+          <div className="meta">sum of face values</div>
+        </div>
+        <div className="stat">
+          <div className="label">Effective / yr</div>
+          <div className="value">{money(totals.effective)}</div>
+          <div className="meta">offset at face · induced &amp; usage discounted</div>
+        </div>
+        <div className="stat">
+          <div className="label">Annual fees</div>
+          <div className="value">{money(totals.fees)}</div>
+          <div className="meta">{db.held_cards.length} card{db.held_cards.length === 1 ? "" : "s"} held</div>
+        </div>
+        <div className={"stat net " + (netPos ? "pos" : "neg")}>
+          <div className="label">Net / yr</div>
+          <div className="value">{netPos ? "+" : "−"}{money(Math.abs(totals.net))}</div>
+          <div className="meta">effective − fees</div>
+        </div>
+      </div>
+
+      {/* Expiring soon */}
+      {db.held_cards.length > 0 && (
+        <div className={"strip" + (expiring.length ? "" : " empty")}>
+          <h2>{expiring.length ? `⏳ Expiring soon — ${expiring.length} unused` : "✓ Nothing expiring in the next 14 days"}</h2>
+          {expiring.length ? (
+            <div className="chips">
+              {expiring.map(({ card, b, d }) => (
+                <div className="chip" key={b.id}>
+                  <div className="c-card">{card.nickname || card.name}</div>
+                  <div className="c-name">{b.name}</div>
+                  <div className="c-row">
+                    <span className={"c-days " + (d === 0 ? "days-0" : "days-soon")}>
+                      {d === 0 ? "resets today" : d === 1 ? "1 day left" : `${d} days left`}
+                    </span>
+                    <button className="tiny" onClick={() => {
+                      const { key } = Engine.currentPeriod(b.reset_cadence, today, b.multi_year_years);
+                      patchBenefit(b.id, { used: true, used_period_key: key });
+                    }}>Mark used</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <div className="none">All your time-sensitive benefits for this period are used or not due yet.</div>}
+        </div>
+      )}
+
+      {/* Held cards */}
+      {heldSorted.length === 0 ? (
+        <div className="empty-state">
+          <h3>No cards yet</h3>
+          <p>Track what each credit-card benefit is really worth against its annual fee. Pick up where you left off, or start from the catalog.</p>
+          <div className="empty-actions">
+            {CLOUD_AVAILABLE && !session && (
+              <button className="primary" onClick={() => setShowAccount(true)}
+                title="Sign in to pull your data from the cloud">☁ Sign in for cloud sync</button>
+            )}
+            <button className={CLOUD_AVAILABLE && !session ? "" : "primary"} onClick={() => setShowAdd(true)}>+ Add a card</button>
+            <button onClick={() => fileRef.current && fileRef.current.click()}
+              title="Restore from a Perq backup file">↑ Import backup JSON</button>
+          </div>
+        </div>
+      ) : (
+        heldSorted.map(card => (
+          <CardSection key={card.id} card={card} benefits={benefitsByCard[card.id] || []}
+            today={today} onPatchBenefit={patchBenefit} onRemove={removeCard} />
+        ))
+      )}
+
+      {showAdd && <AddCardModal db={db} onAdd={addCard} onClose={() => setShowAdd(false)} />}
+      {showAccount && (
+        <AccountModal session={session} cloud={cloud}
+          onSignIn={signInCloud} onSignUp={signUpCloud} onSignOut={signOutCloud}
+          onSyncNow={startupSync} onClose={() => setShowAccount(false)} />
+      )}
+
+      <footer className="app">
+        <span>
+          {fileName
+            ? <>Saved to <b>{fileName}</b> on every change{lsFlash ? " ·" : ""} <span style={{ color: "var(--good)" }}>{lsFlash ? "●" : ""}</span></>
+            : <>Saved in this browser{lsFlash ? <span style={{ color: "var(--good)" }}> ●</span> : ""}.{" "}
+                {FSA_SUPPORTED ? "Use “Auto-save to file” for a real backup file." : "Use Export to back up (your browser can’t auto-save to a file)."}</>}
+          {"  "}<a onClick={resetAll}>Reset to seed</a>
+        </span>
+        <span className={"tests " + (tests.failed.length ? "fail" : "ok")}>
+          engine self-tests: {tests.passed}/{tests.total} {tests.failed.length ? "FAILED" : "passed"}
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+
+<script>
+// Service worker — feature-detected and non-blocking; failures are silent (the
+// app works identically without it, it just isn't installable/offline-capable).
+// Relative path: works on GitHub Pages under /perq-app-shell/; the register()
+// promise rejects silently on file://.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
