@@ -201,6 +201,14 @@
   .b-note textarea:focus { outline: none; border-color: var(--accent); }
 
   .used-flag { font-size: 11px; font-weight: 700; color: var(--good); }
+  .auto-flag { font-size: 11px; font-weight: 700; color: var(--accent-strong); }
+
+  /* auto-credit toggle: off = a quiet opt-in beside the Used switch;
+     on = it REPLACES the switch, because there is nothing left to do. */
+  .auto-btn { padding: 5px 10px; font-size: 11.5px; font-weight: 700; border-radius: 999px; }
+  .auto-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .auto-btn.on:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+  .use-ctl { display: inline-flex; align-items: center; gap: 8px; }
 
   /* modal */
   .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: flex-start; justify-content: center; padding: 50px 16px; z-index: 50; overflow-y: auto; }
@@ -293,9 +301,20 @@ const Engine = (function () {
     return Math.round((midnight(end) - midnight(today)) / DAY);
   }
 
+  // Recurring/auto-applied: the credit posts by itself every period (a monthly
+  // membership fee that a statement credit cancels out, a streaming credit that
+  // lands when the subscription bills). There is no per-period action, so Perq
+  // must never ask for one. Usage perks are per-use by definition — the flag is
+  // meaningless there, so it's ignored rather than trusted.
+  function isAuto(benefit) {
+    return !!benefit.auto_credit && benefit.value_type !== "usage";
+  }
+
   // Is the stored "used" flag valid for the period we're in right now?
   // A used flag stamped in a prior period auto-expires (resets to unused).
+  // Auto-credits are used by definition — no stamp needed, no expiry.
   function isUsedNow(benefit, today) {
+    if (isAuto(benefit)) return true;
     if (!benefit.used) return false;
     const { key } = currentPeriod(benefit.reset_cadence, today, benefit.multi_year_years);
     return benefit.used_period_key === key;
@@ -358,7 +377,7 @@ const Engine = (function () {
 
   return {
     DAY, CADENCES, midnight, periodsPerYear, annualUnits, currentPeriod, daysToReset,
-    isUsedNow, annualNominal, annualEffective, cardTotals, portfolioTotals,
+    isAuto, isUsedNow, annualNominal, annualEffective, cardTotals, portfolioTotals,
     isExpiringSoon, num, clampRate,
   };
 })();
@@ -408,6 +427,18 @@ function runEngineSelfTests() {
   ok("used benefit is never expiring", Engine.isExpiringSoon({ used: true, used_period_key: "2026-05", reset_cadence: "monthly" }, may31) === false);
   ok("annual benefit mid-year not expiring", Engine.isExpiringSoon({ used: false, reset_cadence: "annual" }, may31) === false);
   ok("usage benefit never expiring", Engine.isExpiringSoon({ value_type: "usage", expected_units: 5, reset_cadence: "annual" }, may31) === false);
+
+  // ---- auto-credits: recurring perks that post by themselves ----
+  // The whole point: never nag, in any period, with no stamp to maintain.
+  const autoB = { auto_credit: true, used: false, used_period_key: null, reset_cadence: "monthly", value_type: "offset" };
+  ok("auto credit reads as used with no stamp", Engine.isUsedNow(autoB, may31) === true);
+  ok("auto credit still used in a later period", Engine.isUsedNow(autoB, D(2027, 3, 9)) === true);
+  ok("auto credit never expires", Engine.isExpiringSoon(autoB, may31) === false);
+  ok("auto flag ignored on usage perks", Engine.isAuto({ auto_credit: true, value_type: "usage" }) === false);
+  ok("no auto flag = unchanged manual behaviour", Engine.isUsedNow({ auto_credit: false, used: false, reset_cadence: "monthly" }, may31) === false);
+  ok("auto credit is worth exactly what it was worth", approx(
+    Engine.annualEffective({ ...autoB, face_value: 12.95, realization_rate: 50 }),
+    Engine.annualEffective({ ...autoB, auto_credit: false, face_value: 12.95, realization_rate: 50 })));
 
   // card totals & net
   const card = { annual_fee: 650 };
@@ -465,6 +496,35 @@ function runEngineSelfTests() {
       // Idempotent: a second pass adds nothing.
       const again = reconcileHeldBenefits(fixed);
       ok("reconcile is idempotent", again._reconciled_added === 0);
+
+      // Back-filled rows inherit the catalog's auto default, so a card added
+      // today already knows which of its credits post by themselves.
+      const walmart = fixedRows.find(r => r.catalog_benefit_id === "cb_amex_platinum_8");
+      const airline = fixedRows.find(r => r.catalog_benefit_id === "cb_amex_platinum_3");
+      ok("back-filled auto credit is flagged", !!walmart && walmart.auto_credit === true);
+      ok("back-filled manual credit is not flagged", !!airline && airline.auto_credit === false);
+    }
+
+    // ---- One-time seed of auto flags onto benefits held from before the
+    // feature existed. Must catch the recurring ones, leave everything else
+    // alone, and never re-flip a credit the user set back to manual. ----
+    if (typeof applyAutoCreditDefaults === "function" && typeof syncSeedCatalog === "function") {
+      const legacy = syncSeedCatalog({
+        schema_version: 1, catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_old", card_catalog_id: "amex_platinum", name: "Amex Platinum", annual_fee: 895 }],
+        held_benefits: [
+          { id: "old_walmart", held_card_id: "hc_old", catalog_benefit_id: "cb_amex_platinum_8", reset_cadence: "monthly", value_type: "induced", used: false },
+          { id: "old_airline", held_card_id: "hc_old", catalog_benefit_id: "cb_amex_platinum_3", reset_cadence: "annual", value_type: "offset", used: false },
+          { id: "old_optout", held_card_id: "hc_old", catalog_benefit_id: "cb_amex_platinum_6", reset_cadence: "monthly", value_type: "offset", used: false, auto_credit: false },
+        ],
+      });
+      const seeded = applyAutoCreditDefaults(legacy);
+      const row = (id) => seeded.held_benefits.find(x => x.id === id);
+      ok("seed flags a recurring credit", row("old_walmart").auto_credit === true);
+      ok("seed leaves a manual credit alone", !row("old_airline").auto_credit);
+      ok("seed never overrides an explicit opt-out", row("old_optout").auto_credit === false);
+      ok("seed reports how many it touched", seeded._auto_seeded === 1);
+      ok("seed is idempotent", applyAutoCreditDefaults(seeded)._auto_seeded === 0);
     }
   }
 
@@ -474,7 +534,10 @@ function runEngineSelfTests() {
     const stamp = "2026-06-12T00:00:00.000Z";
     const db1 = {
       held_cards: [{ id: "hc1", card_catalog_id: "amex_platinum", name: "Amex Platinum", issuer: "American Express", network: "Amex", nickname: null, annual_fee: 895, added_at: "2026-05-31T00:00:00.000Z", _junk: true }],
-      held_benefits: [{ id: "hb1", held_card_id: "hc1", catalog_benefit_id: "cb_amex_platinum_1", name: "Hotel Credit", face_value: 300, reset_cadence: "semiannual", multi_year_years: null, value_type: "offset", realization_rate: 80, unit_label: null, expected_units: null, note: "tuned", used: true, used_period_key: "2026-H1", sort_order: 1, _junk: true }],
+      held_benefits: [
+        { id: "hb1", held_card_id: "hc1", catalog_benefit_id: "cb_amex_platinum_1", name: "Hotel Credit", face_value: 300, reset_cadence: "semiannual", multi_year_years: null, value_type: "offset", realization_rate: 80, unit_label: null, expected_units: null, note: "tuned", used: true, used_period_key: "2026-H1", sort_order: 1, _junk: true },
+        { id: "hb2", held_card_id: "hc1", catalog_benefit_id: "cb_amex_platinum_8", name: "Walmart+", face_value: 12.95, reset_cadence: "monthly", multi_year_years: null, value_type: "induced", realization_rate: 50, unit_label: null, expected_units: null, note: "", used: false, used_period_key: null, auto_credit: true, sort_order: 8 },
+      ],
     };
     const rows = CloudSync.rowsFromDb(db1, "user-1", stamp);
     ok("cloud rows: card mapped with user + stamp", rows.cards.length === 1 && rows.cards[0].user_id === "user-1" && rows.cards[0].updated_at === stamp && rows.cards[0].annual_fee === 895);
@@ -482,6 +545,10 @@ function runEngineSelfTests() {
     ok("cloud rows: benefit tuning survives mapping", rows.benefits[0].realization_rate === 80 && rows.benefits[0].used === true && rows.benefits[0].used_period_key === "2026-H1" && rows.benefits[0].note === "tuned");
     const back = CloudSync.dbFromRows(rows.cards, rows.benefits, 1);
     ok("cloud round-trip: held shapes restored", back.held_cards[0].id === "hc1" && !("user_id" in back.held_cards[0]) && back.held_benefits[0].note === "tuned" && back.held_benefits[0].used === true);
+    // An auto flag that didn't survive the round-trip would silently start
+    // nagging again on every other device.
+    ok("cloud rows: auto flag mapped both ways", rows.benefits[1].auto_credit === true && back.held_benefits[1].auto_credit === true);
+    ok("cloud rows: manual credit stays manual", rows.benefits[0].auto_credit === false && back.held_benefits[0].auto_credit === false);
     ok("cloud round-trip: all four tables present", Array.isArray(back.catalog) && Array.isArray(back.catalog_benefits) && back.schema_version === 1);
 
     const dec = CloudSync.syncDecision;
@@ -510,13 +577,18 @@ function runEngineSelfTests() {
 <script>
 const SEED = (function () {
   // helper to keep benefit rows terse
-  const cb = (card_catalog_id, sort, name, face_value, reset_cadence, value_type, realization_rate, note, multi_year_years) => ({
+  // `auto` marks a credit that posts BY ITSELF every period — no activation, no
+  // errand, nothing to remember. Those ship pre-flagged so they never nag.
+  // Deliberately narrow: a credit that merely *auto-applies to spend you choose
+  // to make* (Uber Cash, Lyft, DoorDash) still needs you to go spend it.
+  const cb = (card_catalog_id, sort, name, face_value, reset_cadence, value_type, realization_rate, note, multi_year_years, auto) => ({
     id: `cb_${card_catalog_id}_${sort}`,
     card_catalog_id, sort_order: sort, name,
     face_value, reset_cadence,
     default_value_type: value_type,
     default_realization_rate: realization_rate,
     default_note: note,
+    default_auto_credit: !!auto,
     multi_year_years: multi_year_years || null,
     unit_label: null, expected_units: null,
   });
@@ -531,6 +603,7 @@ const SEED = (function () {
     default_value_type: "usage",
     default_realization_rate: realization_rate,
     default_note: note,
+    default_auto_credit: false, // per-use by definition — never auto
     multi_year_years: null,
     unit_label, expected_units,
   });
@@ -548,9 +621,9 @@ const SEED = (function () {
     cb("amex_platinum", 3, "Airline Fee Credit", 200, "annual", "offset", 85, "Incidental fees (bags, seats, lounge passes) on one selected airline. Airfare excluded."),
     cb("amex_platinum", 4, "Uber Cash", 15, "monthly", "offset", 90, "$15/mo for Uber & Uber Eats (US); $35 in December. Platinum must be the payment method; no rollover."),
     cb("amex_platinum", 5, "Uber One Membership", 120, "annual", "induced", 50, "Covers Uber One membership up to $120/yr."),
-    cb("amex_platinum", 6, "Digital Entertainment Credit", 25, "monthly", "offset", 70, "Disney+, Hulu, ESPN+, Peacock, Paramount+, NYT, WSJ, YouTube Premium/TV. Enrollment; monthly use-or-lose."),
+    cb("amex_platinum", 6, "Digital Entertainment Credit", 25, "monthly", "offset", 70, "Disney+, Hulu, ESPN+, Peacock, Paramount+, NYT, WSJ, YouTube Premium/TV. Enrollment; monthly use-or-lose. Auto: the credit posts when the enrolled subscription bills.", null, true),
     cb("amex_platinum", 7, "CLEAR Plus Credit", 219, "annual", "offset", 60, "Covers CLEAR Plus membership ($219/yr — price and credit both raised 7/1/2026)."),
-    cb("amex_platinum", 8, "Walmart+ Membership", 12.95, "monthly", "induced", 50, "Covers the monthly Walmart+ plan only (not annual); pay with Platinum."),
+    cb("amex_platinum", 8, "Walmart+ Membership", 12.95, "monthly", "induced", 50, "Covers the monthly Walmart+ plan only (not annual); pay with Platinum. Auto: the plan charges and the credit posts every month on its own.", null, true),
     cb("amex_platinum", 9, "Equinox Credit", 300, "annual", "induced", 40, "Annual $300 on Equinox club or Equinox+/App; enrollment + auto-renew."),
     cb("amex_platinum", 10, "lululemon Credit", 75, "quarterly", "induced", 60, "U.S. lululemon stores (excl. outlets) or lululemon.com; quarterly use-or-lose."),
     cb("amex_platinum", 11, "Oura Ring Credit", 200, "annual", "induced", 25, "Up to $200 on an Oura Ring purchase (hardware only)."),
@@ -575,7 +648,7 @@ const SEED = (function () {
     // hotel credit ($250) are excluded — conditional / one-off, not guaranteed annual value.
 
     // ---- Marriott Bonvoy Brilliant ($650) ----
-    cb("bonvoy_brilliant", 1, "Dining Credit", 25, "monthly", "offset", 100, "$25/mo dining statement credit worldwide; automatic; no monthly rollover."),
+    cb("bonvoy_brilliant", 1, "Dining Credit", 25, "monthly", "offset", 100, "$25/mo dining statement credit worldwide; automatic; no monthly rollover.", null, true),
     cb("bonvoy_brilliant", 2, "Annual Free Night Award", 680, "annual", "induced", 65, "Free Night Award up to 85,000 pts/night after the renewal anniversary; +25k top-up allowed. Valued at 0.8¢/pt."),
     cb("bonvoy_brilliant", 3, "Property Credit (Ritz-Carlton / St. Regis)", 100, "annual", "induced", 50, "Up to $100 (dining/spa) on a 2-night paid stay at Ritz-Carlton or St. Regis booked direct."),
     cb("bonvoy_brilliant", 4, "Global Entry / TSA PreCheck", 120, "multi_year", "offset", 100, "Application-fee reimbursement once every 4 years.", 4),
@@ -630,6 +703,7 @@ const CloudSync = (function () {
       note: b.note == null ? null : b.note,
       used: !!b.used,
       used_period_key: b.used_period_key == null ? null : b.used_period_key,
+      auto_credit: !!b.auto_credit,
       sort_order: b.sort_order == null ? null : b.sort_order,
       updated_at: stamp,
     };
@@ -655,7 +729,8 @@ const CloudSync = (function () {
       multi_year_years: r.multi_year_years, value_type: r.value_type,
       realization_rate: r.realization_rate, unit_label: r.unit_label,
       expected_units: r.expected_units, note: r.note == null ? "" : r.note,
-      used: !!r.used, used_period_key: r.used_period_key, sort_order: r.sort_order,
+      used: !!r.used, used_period_key: r.used_period_key, auto_credit: !!r.auto_credit,
+      sort_order: r.sort_order,
     });
     return {
       schema_version: schemaVersion,
@@ -719,7 +794,7 @@ const CloudSync = (function () {
         integrity="sha384-ezQ6HS3FLspd9te19o2McUV6FAK091+GG7KO54f/R8DKgCDi7fULhapNrd5LY+vG"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2; // 2: held_benefit.auto_credit (recurring / self-applying credits)
 const STORAGE_KEY = "perq.db.v1";
 // Shell builds (the public GitHub Pages copy) start EMPTY — no cards pre-held.
 // tools/publish_shell.py flips this to true when it builds the public artifact;
@@ -743,7 +818,8 @@ function heldBenefitFromTemplate(cardId, t) {
     multi_year_years: t.multi_year_years || null,
     value_type: t.default_value_type, realization_rate: t.default_realization_rate,
     unit_label: t.unit_label || null, expected_units: (t.expected_units != null ? t.expected_units : null),
-    note: t.default_note || "", used: false, used_period_key: null, sort_order: t.sort_order,
+    note: t.default_note || "", used: false, used_period_key: null,
+    auto_credit: !!t.default_auto_credit, sort_order: t.sort_order,
   };
 }
 
@@ -809,6 +885,51 @@ function freshDbFromSeed() {
   return db;
 }
 
+// One-time, per device: cards held from before auto-credits existed have no
+// flag at all, so seed it from the catalog default (Walmart+, streaming, the
+// monthly dining credit) instead of making the user find them by hand.
+//
+// Gated on a device-local marker rather than db.schema_version, because a
+// device can also ADOPT its whole state from the cloud — and cloud rows carry
+// no version of their own, so a phone that pulled first would never get seeded.
+// Because it runs exactly once, switching a credit back to manual sticks.
+const MIGRATION_KEY = "perq.migrations.v1";
+function migrationDone(name) {
+  try { return !!(JSON.parse(localStorage.getItem(MIGRATION_KEY)) || {})[name]; }
+  catch (e) { return false; }
+}
+function markMigrationDone(name) {
+  try {
+    const m = JSON.parse(localStorage.getItem(MIGRATION_KEY)) || {};
+    m[name] = true;
+    localStorage.setItem(MIGRATION_KEY, JSON.stringify(m));
+  } catch (e) { /* best-effort; worst case it seeds once more */ }
+}
+
+// Only touches benefits with NO flag at all — an explicit false (the user chose
+// manual) is left alone. Run after syncSeedCatalog, which supplies the defaults.
+// Pure, so the self-tests can exercise it without touching the real marker.
+function applyAutoCreditDefaults(db) {
+  const autoTemplates = new Set(
+    (db.catalog_benefits || []).filter(t => t.default_auto_credit).map(t => t.id)
+  );
+  let seeded = 0;
+  for (const b of db.held_benefits) {
+    if (b.auto_credit == null && autoTemplates.has(b.catalog_benefit_id)) {
+      b.auto_credit = true; seeded++;
+    }
+  }
+  db._auto_seeded = seeded;
+  return db;
+}
+
+function seedAutoCredits(db) {
+  if (migrationDone("auto_credit_seed")) return db;
+  applyAutoCreditDefaults(db);
+  markMigrationDone("auto_credit_seed");
+  return db;
+}
+
 // The catalog is a MAINTAINED library — SEED is its single source of truth.
 // On every load/import we re-sync catalog templates from SEED so corrections
 // (a fixed issuer, a changed credit amount, a new benefit) always reach the
@@ -831,7 +952,8 @@ function loadDb() {
     parsed.catalog_benefits = parsed.catalog_benefits || [];
     parsed.held_cards = parsed.held_cards || [];
     parsed.held_benefits = parsed.held_benefits || [];
-    return reconcileHeldBenefits(syncSeedCatalog(parsed));
+    parsed.schema_version = SCHEMA_VERSION;
+    return seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(parsed)));
   } catch (e) {
     console.error("[Perq] load failed, starting fresh:", e);
     return freshDbFromSeed();
@@ -968,12 +1090,14 @@ function coerceType(b, v) {
     if (b.expected_units == null) patch.expected_units = 1;
     if (!b.unit_label) patch.unit_label = "use";
     if (b.realization_rate == null) patch.realization_rate = 100;
+    patch.auto_credit = false; // per-use perks are never "auto" — drop a stale flag
   }
   return patch;
 }
 
 function BenefitRow({ b, today, onPatch }) {
   const isUsage = b.value_type === "usage";
+  const auto = Engine.isAuto(b);
   const usedNow = !isUsage && Engine.isUsedNow(b, today);
   const eff = Engine.annualEffective(b);
   const nom = Engine.annualNominal(b);
@@ -991,6 +1115,10 @@ function BenefitRow({ b, today, onPatch }) {
     }
   };
 
+  // Auto on: the manual stamp is now dead weight, so clear it — and turning auto
+  // back off then lands on a clean "unused this period" instead of a stale ✓.
+  const toggleAuto = () => onPatch({ auto_credit: !auto, used: false, used_period_key: null });
+
   return (
     <div className="benefit">
       <div className="b-main">
@@ -998,7 +1126,8 @@ function BenefitRow({ b, today, onPatch }) {
           <span>{b.name}</span>
           <span className="b-face">{money(b.face_value, b.face_value % 1 ? 2 : 0)}{isUsage ? ` / ${unit}` : ""}</span>
           <span className="cadence">{isUsage ? `per ${unit}` : CADENCE_LABEL[b.reset_cadence]}</span>
-          {usedNow && <span className="used-flag">✓ used this period</span>}
+          {auto ? <span className="auto-flag">⟲ automatic — no action needed</span>
+            : usedNow && <span className="used-flag">✓ used this period</span>}
         </div>
         {isUsage ? (
           <div className="b-reset">
@@ -1006,7 +1135,8 @@ function BenefitRow({ b, today, onPatch }) {
           </div>
         ) : (
           <div className="b-reset" style={soon && !usedNow ? { color: dToReset === 0 ? "var(--bad)" : "var(--warn)", fontWeight: 600 } : null}>
-            {resetLabel(b, today)}{nom !== b.face_value ? ` · ${money(nom)}/yr face` : ""}
+            {auto ? `posts ${CADENCE_LABEL[b.reset_cadence]} on its own` : resetLabel(b, today)}
+            {nom !== b.face_value ? ` · ${money(nom)}/yr face` : ""}
           </div>
         )}
         <div className="b-note">
@@ -1026,7 +1156,16 @@ function BenefitRow({ b, today, onPatch }) {
             <button onClick={() => onPatch({ expected_units: units + 1 })} aria-label="one more">+</button>
           </div>
         ) : (
-          <Switch on={usedNow} onChange={toggleUsed} />
+          <div className="use-ctl">
+            {!auto && <Switch on={usedNow} onChange={toggleUsed} />}
+            <button className={"auto-btn" + (auto ? " on" : "")} onClick={toggleAuto}
+              aria-pressed={auto}
+              title={auto
+                ? "Recurring: this credit posts every period on its own, so Perq counts it and never asks. Click to track it by hand again."
+                : "Recurring — this credit posts every period on its own (a membership fee, a subscription). Perq will count it and stop asking."}>
+              ⟲ Auto
+            </button>
+          </div>
         )}
         <Seg value={b.value_type} onChange={(v) => onPatch(coerceType(b, v))} />
         {(b.value_type === "induced" || isUsage) && (
@@ -1360,8 +1499,8 @@ function App() {
     if (cardsRes.error) throw cardsRes.error;
     if (bensRes.error) throw bensRes.error;
     if (metaRes.error) throw metaRes.error;
-    const next = reconcileHeldBenefits(syncSeedCatalog(
-      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION)));
+    const next = seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(
+      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION))));
     applyingCloud.current = true;
     setDb(next);
     if (gen === authGen.current) {
@@ -1514,7 +1653,7 @@ function App() {
           held_cards: parsed.held_cards || [],
           held_benefits: parsed.held_benefits || [],
         };
-        setDb(reconcileHeldBenefits(syncSeedCatalog(clean)));
+        setDb(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(clean))));
       } catch (err) {
         alert("Couldn't read that file — invalid JSON.");
       } finally {
