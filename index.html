@@ -526,6 +526,44 @@ function runEngineSelfTests() {
       ok("seed reports how many it touched", seeded._auto_seeded === 1);
       ok("seed is idempotent", applyAutoCreditDefaults(seeded)._auto_seeded === 0);
     }
+
+    // ---- The Oct-2026 DoorDash change: one blended $25 row becomes the $15
+    // restaurant credit, and the two $10 promos arrive as their own per-use
+    // row. Asserted against the catalog template, not against magic numbers,
+    // so the next amount change only has to be made in SEED. ----
+    if (typeof retuneDoorDash2026 === "function" && typeof syncSeedCatalog === "function") {
+      const legacy = syncSeedCatalog({
+        schema_version: 2, catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_csr", card_catalog_id: "csr", name: "Chase Sapphire Reserve", annual_fee: 795 }],
+        held_benefits: [
+          { id: "old_dd", held_card_id: "hc_csr", catalog_benefit_id: "cb_csr_7", name: "DoorDash Promo Credits", face_value: 25, reset_cadence: "monthly", value_type: "induced", realization_rate: 36, note: DOORDASH_OLD_NOTE, used: true, used_period_key: "2026-07" },
+          { id: "old_dp", held_card_id: "hc_csr", catalog_benefit_id: "cb_csr_8", name: "DashPass Membership", face_value: 120, reset_cadence: "annual", value_type: "offset", realization_rate: 17, note: "mine", used: true, used_period_key: "2026" },
+        ],
+      });
+      const moved = retuneDoorDash2026(reconcileHeldBenefits(legacy));
+      const tpl = (id) => moved.catalog_benefits.find(x => x.id === id);
+      const row = (id) => moved.held_benefits.find(x => x.catalog_benefit_id === id);
+      ok("DoorDash row takes the catalog's new face value", row("cb_csr_7").face_value === tpl("cb_csr_7").face_value);
+      ok("DoorDash row drops the rate tuned against the old blob", row("cb_csr_7").realization_rate === tpl("cb_csr_7").default_realization_rate);
+      ok("DoorDash retune keeps the used stamp", row("cb_csr_7").used === true && row("cb_csr_7").used_period_key === "2026-07");
+      ok("DoorDash retune reports one row", moved._doordash_retuned === 1);
+      ok("DoorDash retune is idempotent", retuneDoorDash2026(moved)._doordash_retuned === 0);
+      ok("the $10 promos land as a per-use row", !!row("cb_csr_12") && row("cb_csr_12").value_type === "usage"
+        && row("cb_csr_12").expected_units === tpl("cb_csr_12").expected_units);
+      ok("DoorDash retune replaces only the stale catalog note", row("cb_csr_7").note === tpl("cb_csr_7").default_note);
+      // 17 is a value no template carries, so this can't pass by coincidence
+      ok("DoorDash retune leaves the card's other rows alone", row("cb_csr_8").realization_rate === 17 && row("cb_csr_8").note === "mine");
+      // anything the user re-typed no longer looks like the old blended row — hands off
+      const edited = (patch) => retuneDoorDash2026({
+        catalog_benefits: moved.catalog_benefits,
+        held_benefits: [Object.assign({ catalog_benefit_id: "cb_csr_7", face_value: 25, reset_cadence: "monthly", value_type: "induced", realization_rate: 10 }, patch)],
+      });
+      ok("DoorDash retune skips a hand-set face value", edited({ face_value: 20 })._doordash_retuned === 0);
+      ok("DoorDash retune skips a row switched to per-use", edited({ value_type: "usage", expected_units: 4 })._doordash_retuned === 0);
+      ok("DoorDash retune skips a row on another cadence", edited({ reset_cadence: "annual" })._doordash_retuned === 0);
+      ok("DoorDash retune keeps a note the user wrote", edited({ note: "my own note" }).held_benefits[0].note === "my own note");
+      ok("DoorDash retune tolerates a db with no held rows", retuneDoorDash2026({ catalog_benefits: moved.catalog_benefits })._doordash_retuned === 0);
+    }
   }
 
   // ---- CloudSync: row mapping is the cloud-schema contract; syncDecision is
@@ -639,11 +677,12 @@ const SEED = (function () {
     cb("csr", 4, "StubHub / viagogo Credit", 150, "semiannual", "induced", 50, "Up to $150 per half-year on StubHub/viagogo event tickets; activation required."),
     cb("csr", 5, "Apple TV+ & Apple Music", 250, "annual", "induced", 60, "Complimentary Apple TV+ & Music (~$250/yr value); activate each service; through 6/22/2027."),
     cb("csr", 6, "Lyft Credit", 10, "monthly", "offset", 90, "$10 in-app Lyft credit each month; activation required; forfeits monthly."),
-    cb("csr", 7, "DoorDash Promo Credits", 25, "monthly", "induced", 50, "Monthly $5 restaurant + two $10 non-restaurant promos; requires active DashPass; forfeits monthly."),
+    cb("csr", 7, "DoorDash Restaurant Credit", 15, "monthly", "induced", 80, "$15/mo in DoorDash restaurant promos — tripled from $5 on 10/1/2026, runs through 2029. Requires active DashPass; forfeits monthly."),
     cb("csr", 8, "DashPass Membership", 120, "annual", "induced", 50, "Complimentary DashPass ($0 delivery fees); activate by 12/31/2027. Enables the monthly promos."),
     cb("csr", 9, "Peloton Credit", 10, "monthly", "induced", 50, "$10/mo on a Peloton membership; through 12/31/2027."),
     cb("csr", 10, "Global Entry / TSA / NEXUS", 120, "multi_year", "offset", 100, "Application-fee reimbursement once every 4 years.", 4),
     cu("csr", 11, "Lounge Access (Priority Pass + Sapphire Lounges)", 50, "visit", 10, 45, "Priority Pass Select + Chase Sapphire Lounges (incl. by The Club). Set visits/yr and what a visit is genuinely worth to you."),
+    cu("csr", 12, "DoorDash Non-Restaurant Promos", 10, "promo", 2, 90, "Two $10 promos a month for grocery, retail and convenience orders. Sticker is $240/yr, but they are monthly use-or-lose and easy to skip — so they are tracked per redemption: set how many you actually use in a year."),
     // Note: $75k-spend milestone credits (Shops at Chase $250, Southwest $500) and the 2026-only bonus
     // hotel credit ($250) are excluded — conditional / one-off, not guaranteed annual value.
 
@@ -930,6 +969,51 @@ function seedAutoCredits(db) {
   return db;
 }
 
+// ---- Oct 1, 2026: the CSR DoorDash credit changed shape ----------------
+// Chase tripled the monthly restaurant promo ($5 -> $15) and left the two $10
+// non-restaurant promos alone. The old catalog carried all three as a single
+// $25/mo row, which can no longer be tuned honestly: the restaurant half gets
+// used most months, the $10s once or twice a year. So cb_csr_7 narrows to the
+// restaurant credit and cb_csr_12 — back-filled by reconcileHeldBenefits —
+// carries the $10s as a per-redemption row.
+//
+// Held rows normally keep whatever they copied at add-time, but this benefit
+// changed underneath them: a realization rate tuned against "all DoorDash
+// promos" says nothing about a restaurants-only credit, so the row IS
+// re-pointed at the catalog template — rate included. That is the one
+// deliberate overwrite here, and the guard is what bounds it: only a row still
+// in the old blended shape ($25, monthly, induced) is touched, so a row the
+// user has re-typed — different amount, different cadence, switched to a
+// per-use row — is left exactly as it is. What survives on a row that does
+// get retuned: its used stamp, and any note the user wrote themselves (only
+// the stale catalog text is replaced). A rewritten row can never match the
+// guard again, so this is idempotent and needs no run-once marker — a stale
+// backup imported next year gets corrected too.
+const DOORDASH_OLD_NOTE = "Monthly $5 restaurant + two $10 non-restaurant promos; requires active DashPass; forfeits monthly.";
+
+function retuneDoorDash2026(db) {
+  const t = (db.catalog_benefits || []).find(x => x.id === "cb_csr_7");
+  let retuned = 0;
+  if (t && Engine.num(t.face_value) !== 25) {
+    for (const b of (db.held_benefits || [])) {
+      if (b.catalog_benefit_id !== "cb_csr_7") continue;
+      // still the old blended row, untouched in shape: $25 a month, induced.
+      if (Engine.num(b.face_value) !== 25) continue;
+      if (b.reset_cadence !== "monthly" || b.value_type !== "induced") continue;
+      b.name = t.name;
+      b.face_value = t.face_value;
+      b.realization_rate = t.default_realization_rate;
+      b.unit_label = t.unit_label || null;
+      b.expected_units = t.expected_units == null ? null : t.expected_units;
+      // a note the user wrote is theirs; only the stale catalog text is replaced
+      if (!b.note || b.note === DOORDASH_OLD_NOTE) b.note = t.default_note;
+      retuned++;
+    }
+  }
+  db._doordash_retuned = retuned;
+  return db;
+}
+
 // The catalog is a MAINTAINED library — SEED is its single source of truth.
 // On every load/import we re-sync catalog templates from SEED so corrections
 // (a fixed issuer, a changed credit amount, a new benefit) always reach the
@@ -953,7 +1037,7 @@ function loadDb() {
     parsed.held_cards = parsed.held_cards || [];
     parsed.held_benefits = parsed.held_benefits || [];
     parsed.schema_version = SCHEMA_VERSION;
-    return seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(parsed)));
+    return retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(parsed))));
   } catch (e) {
     console.error("[Perq] load failed, starting fresh:", e);
     return freshDbFromSeed();
@@ -1499,8 +1583,8 @@ function App() {
     if (cardsRes.error) throw cardsRes.error;
     if (bensRes.error) throw bensRes.error;
     if (metaRes.error) throw metaRes.error;
-    const next = seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(
-      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION))));
+    const next = retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(
+      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION)))));
     applyingCloud.current = true;
     setDb(next);
     if (gen === authGen.current) {
@@ -1653,7 +1737,7 @@ function App() {
           held_cards: parsed.held_cards || [],
           held_benefits: parsed.held_benefits || [],
         };
-        setDb(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(clean))));
+        setDb(retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(clean)))));
       } catch (err) {
         alert("Couldn't read that file — invalid JSON.");
       } finally {
