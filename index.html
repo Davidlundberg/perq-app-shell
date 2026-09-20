@@ -470,6 +470,93 @@ function runEngineSelfTests() {
       ok(`seed ${cat.id} effective > 0`, eff > 0);
     }
 
+    // ---- Derived benefit ids: the same benefit on the same card must be
+    // called the same thing on every device, or a full-state push deletes the
+    // other device's copy of it. Everything here is about that one property. ----
+    if (typeof heldBenefitId === "function" && typeof normalizeHeldBenefitIds === "function") {
+      const t7 = SEED.catalog_benefits.find(x => x.id === "cb_csr_7");
+      ok("benefit id is derived from card + template", heldBenefitId("card-1", "cb_csr_7") === heldBenefitId("card-1", "cb_csr_7"));
+      ok("benefit id differs per card", heldBenefitId("card-1", "cb_csr_7") !== heldBenefitId("card-2", "cb_csr_7"));
+      ok("benefit id differs per template", heldBenefitId("card-1", "cb_csr_7") !== heldBenefitId("card-1", "cb_csr_8"));
+      ok("benefit id survives a PostgREST in-list", /^[A-Za-z0-9_-]+$/.test(heldBenefitId("7f424425-20cd-49d1-8d7c-f0907ed0a2ac", "cb_csr_12")));
+      ok("a row with no template still gets a unique id", heldBenefitId("card-1", null) !== heldBenefitId("card-1", null));
+
+      // THE cross-device property: two devices back-filling the same card
+      // independently arrive at the same row id, so neither push deletes the
+      // other's row. This is what random ids got wrong.
+      const deviceDb = () => reconcileHeldBenefits(syncSeedCatalog({
+        catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_shared", card_catalog_id: "csr", name: "Chase Sapphire Reserve", annual_fee: 795 }],
+        held_benefits: [],
+      }));
+      const phone = deviceDb(), laptop = deviceDb();
+      const ids = (db) => db.held_benefits.map(b => b.id).sort().join("|");
+      ok("two devices back-fill the same card to the same ids", ids(phone) === ids(laptop) && phone.held_benefits.length > 0);
+
+      // Legacy rows: re-keyed in place, keeping every value and the used stamp.
+      const legacyRow = { id: "3ce8eea1-random", held_card_id: "hc_shared", catalog_benefit_id: "cb_csr_8", name: "DashPass Membership", face_value: 120, reset_cadence: "annual", value_type: "offset", realization_rate: 17, note: "mine", used: true, used_period_key: "2026", sort_order: 8 };
+      const mine = { id: "user-made", held_card_id: "hc_shared", catalog_benefit_id: null, name: "Something I added", face_value: 10, reset_cadence: "annual", value_type: "offset", used: false };
+      const fixedIds = normalizeHeldBenefitIds(syncSeedCatalog({
+        catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_shared", card_catalog_id: "csr", name: "Chase Sapphire Reserve", annual_fee: 795 }],
+        held_benefits: [Object.assign({}, legacyRow), Object.assign({}, mine)],
+      }));
+      const reKeyed = fixedIds.held_benefits.find(b => b.catalog_benefit_id === "cb_csr_8");
+      ok("a legacy random id is re-keyed to the derived one", reKeyed.id === heldBenefitId("hc_shared", "cb_csr_8"));
+      ok("re-keying keeps the row's tuning and used stamp", reKeyed.realization_rate === 17 && reKeyed.note === "mine" && reKeyed.used === true && reKeyed.used_period_key === "2026");
+      ok("re-keying reports what it touched", fixedIds._ids_rekeyed === 1 && fixedIds._dupes_merged === 0);
+      ok("a row with no template keeps its own id", !!fixedIds.held_benefits.find(b => b.id === "user-made"));
+      ok("re-keying is idempotent", normalizeHeldBenefitIds(fixedIds)._ids_rekeyed === 0);
+
+      // Duplicates already in the cloud: the same benefit back-filled twice
+      // under two random ids. One row survives — the tuned one.
+      const dupes = (rows) => normalizeHeldBenefitIds(syncSeedCatalog({
+        catalog: [], catalog_benefits: [],
+        held_cards: [{ id: "hc_shared", card_catalog_id: "csr", name: "Chase Sapphire Reserve", annual_fee: 795 }],
+        held_benefits: rows,
+      }));
+      const plain = { id: "rand-a", held_card_id: "hc_shared", catalog_benefit_id: "cb_csr_7", face_value: t7.face_value, reset_cadence: "monthly", value_type: t7.default_value_type, realization_rate: t7.default_realization_rate, note: t7.default_note, used: false, expected_units: null };
+      const tuned = Object.assign({}, plain, { id: "rand-b", realization_rate: 55, used: true, used_period_key: "2026-09" });
+      const mergedA = dupes([Object.assign({}, plain), Object.assign({}, tuned)]);
+      const mergedB = dupes([Object.assign({}, tuned), Object.assign({}, plain)]);
+      const only = (db) => db.held_benefits.filter(b => b.catalog_benefit_id === "cb_csr_7");
+      ok("duplicate rows collapse to one", only(mergedA).length === 1 && only(mergedB).length === 1);
+      ok("the tuned copy is the one kept", only(mergedA)[0].realization_rate === 55 && only(mergedB)[0].realization_rate === 55);
+      ok("merging is reported, whichever order they arrive in", mergedA._dupes_merged === 1 && mergedB._dupes_merged === 1);
+      ok("the survivor carries the derived id", only(mergedA)[0].id === heldBenefitId("hc_shared", "cb_csr_7"));
+      ok("untouched duplicates still collapse", only(dupes([Object.assign({}, plain), Object.assign({}, plain, { id: "rand-c" })])).length === 1);
+      // tuningScore decides which duplicate survives, so every field it claims
+      // to count is asserted on its own — a blended assertion would still pass
+      // with most of the comparisons deleted.
+      const score = (patch) => tuningScore(Object.assign({}, plain, patch), t7);
+      ok("tuningScore: an untouched row scores nothing", score({}) === 0);
+      ok("tuningScore counts a used stamp", score({ used: true }) === 1);
+      ok("tuningScore counts a moved face value", score({ face_value: 99 }) === 1);
+      ok("tuningScore counts a moved rate", score({ realization_rate: 55 }) === 1);
+      ok("tuningScore counts a changed value type", score({ value_type: "offset" }) === 1);
+      ok("tuningScore counts moved expected units", score({ expected_units: 4 }) === 1);
+      ok("tuningScore counts a user's note", score({ note: "mine" }) === 1);
+      ok("tuningScore counts an auto flag off its default", score({ auto_credit: !t7.default_auto_credit }) === 1);
+      ok("tuningScore adds up", score({ used: true, realization_rate: 55, note: "mine" }) === 3);
+      ok("tuningScore survives a missing template", tuningScore(plain, undefined) === 0 && tuningScore(tuned, undefined) === 1);
+
+      // A template-less row squatting on a derived id would put two rows under
+      // one primary key and break the next push outright.
+      const squat = dupes([
+        Object.assign({}, plain, { id: "rand-d" }),
+        { id: heldBenefitId("hc_shared", "cb_csr_7"), held_card_id: "hc_shared", catalog_benefit_id: null, name: "squatter", face_value: 1, reset_cadence: "annual", value_type: "offset" },
+      ]);
+      ok("a squatting id is given up, not duplicated", squat.held_benefits.length === new Set(squat.held_benefits.map(b => b.id)).size);
+      ok("the squatting row survives under a new id", !!squat.held_benefits.find(b => b.name === "squatter"));
+
+      // pgIdList builds the delete filter that scopes a push; an id from an
+      // imported file must not be able to close the quote.
+      ok("pgIdList escapes a quote in an id", pgIdList(['a"b']) === '("a\\"b")');
+      ok("pgIdList escapes a backslash in an id", pgIdList(["a\\b"]) === '("a\\\\b")');
+      ok("pgIdList still passes ordinary ids through", pgIdList(["hb_1__cb_csr_7", "x-1"]) === '("hb_1__cb_csr_7","x-1")');
+      ok("normalize tolerates a db with no held rows", normalizeHeldBenefitIds({ catalog_benefits: [] })._dupes_merged === 0);
+    }
+
     // ---- reconcileHeldBenefits: a held card missing newer catalog benefits
     // gets them back-filled on load, without disturbing existing tuned rows. ----
     if (typeof reconcileHeldBenefits === "function" && typeof syncSeedCatalog === "function") {
@@ -846,13 +933,29 @@ function uuid() {
     : "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+// A held benefit IS one catalog template on one held card — that pair is its
+// identity, so the id is derived from it rather than rolled at random. This
+// matters across devices: every device back-fills a newly catalogued benefit
+// onto its own copy of a card (reconcileHeldBenefits), and with random ids
+// each invents a different primary key for the same logical row. Cloud sync
+// mirrors full state — a push deletes every row whose id it does not hold —
+// so the laptop's push would delete the phone's copy of that row, and any
+// tuning on it, purely because the two ids differ. Derived ids make the two
+// devices agree, turning that delete into an idempotent upsert of one row.
+// Only a row with no catalog template behind it (nothing creates one today,
+// but cloud rows allow it) still needs a random id.
+// Safe inside a PostgREST `in` list: hex, dashes and underscores only.
+function heldBenefitId(cardId, catalogBenefitId) {
+  return catalogBenefitId ? "hb_" + cardId + "__" + catalogBenefitId : uuid();
+}
+
 // Instantiate one catalog template into a held card + its held benefits.
 // Held benefits COPY the template's values at add-time so later catalog
 // corrections never silently overwrite the user's tuned tracking.
 // Shared by addCard (live catalog) and the default seed (SEED catalog).
 function heldBenefitFromTemplate(cardId, t) {
   return {
-    id: uuid(), held_card_id: cardId, catalog_benefit_id: t.id,
+    id: heldBenefitId(cardId, t.id), held_card_id: cardId, catalog_benefit_id: t.id,
     name: t.name, face_value: t.face_value, reset_cadence: t.reset_cadence,
     multi_year_years: t.multi_year_years || null,
     value_type: t.default_value_type, realization_rate: t.default_realization_rate,
@@ -872,6 +975,70 @@ function instantiateCard(cat, catalogBenefits) {
     .filter(b => b.card_catalog_id === cat.id)
     .map(t => heldBenefitFromTemplate(cardId, t));
   return { card, benefits };
+}
+
+// How much of the user's own work a row carries, for picking a survivor when
+// two rows turn out to be the same logical benefit. Each field that has moved
+// off its template counts; a used stamp counts once. Ties are broken by the
+// row that already had the derived id, then by the one seen first — which is
+// why pullCloud reads held_benefits in id order: same input order on every
+// device, same survivor.
+function tuningScore(b, t) {
+  let n = b.used ? 1 : 0;
+  if (!t) return n;
+  if (Engine.num(b.face_value) !== Engine.num(t.face_value)) n++;
+  if (Engine.num(b.realization_rate) !== Engine.num(t.default_realization_rate)) n++;
+  if (b.value_type !== t.default_value_type) n++;
+  if (Engine.num(b.expected_units) !== Engine.num(t.expected_units)) n++;
+  if ((b.note || "") !== (t.default_note || "")) n++;
+  if (!!b.auto_credit !== !!t.default_auto_credit) n++;
+  return n;
+}
+
+// One-time repair for rows created before ids were derived (above), run on
+// every load because a device can adopt its whole state from the cloud and
+// cloud rows carry no version of their own. Two jobs, and the second only
+// exists because of the first:
+//   1. re-key a row onto its derived id, so this device stops disagreeing
+//      with every other device about what that row is called;
+//   2. merge the duplicates that surface when it does — the same benefit
+//      back-filled independently on two devices, each under its own random
+//      id, both already pushed. The copy carrying more of the user's tuning
+//      wins; the other is dropped, because one row is the whole point.
+// Re-keying is safe under the sync model: a push mirrors full state, so the
+// old id disappears and the derived one takes its place on every device, and
+// both devices compute the same name for it. Idempotent — a re-keyed row is
+// already at its target — so it needs no run-once marker.
+function normalizeHeldBenefitIds(db) {
+  const templates = new Map((db.catalog_benefits || []).map(t => [t.id, t]));
+  const winners = new Map(); // derived id -> row
+  const loose = [];          // rows with no template behind them: left alone
+  let rekeyed = 0, merged = 0;
+  for (const b of (db.held_benefits || [])) {
+    if (!b.catalog_benefit_id) { loose.push(b); continue; }
+    const want = heldBenefitId(b.held_card_id, b.catalog_benefit_id);
+    const prev = winners.get(want);
+    if (!prev) { winners.set(want, b); continue; }
+    const t = templates.get(b.catalog_benefit_id);
+    const sPrev = tuningScore(prev, t), sB = tuningScore(b, t);
+    const keepPrev = sPrev !== sB ? sPrev > sB : (prev.id === want || b.id !== want);
+    winners.set(want, keepPrev ? prev : b);
+    merged++;
+  }
+  for (const [want, b] of winners) {
+    if (b.id !== want) { b.id = want; rekeyed++; }
+  }
+  // A hand-edited import could hand a template-less row an id that a derived
+  // row is about to take. Two rows under one primary key make pushCloud send a
+  // duplicate key in a single upsert, which Postgres rejects outright (21000)
+  // and sync stops dead — so the row with no claim to that name gives it up.
+  for (const b of loose) {
+    if (winners.has(b.id)) { b.id = uuid(); rekeyed++; }
+  }
+  db.held_benefits = loose.concat(Array.from(winners.values()));
+  db._ids_rekeyed = rekeyed;
+  db._dupes_merged = merged;
+  return db;
 }
 
 // Forward-fill: when the catalog gains a benefit AFTER a card is already held
@@ -1037,7 +1204,7 @@ function loadDb() {
     parsed.held_cards = parsed.held_cards || [];
     parsed.held_benefits = parsed.held_benefits || [];
     parsed.schema_version = SCHEMA_VERSION;
-    return retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(parsed))));
+    return retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(normalizeHeldBenefitIds(syncSeedCatalog(parsed)))));
   } catch (e) {
     console.error("[Perq] load failed, starting fresh:", e);
     return freshDbFromSeed();
@@ -1118,8 +1285,15 @@ function syncErrorText(e) {
   const m = e && (e.message || e.error_description || e.msg);
   return m ? String(m) : "Sync failed — check your connection.";
 }
-// PostgREST `in` list for text ids (ids are uuid / base36 — no quoting hazards).
-function pgIdList(ids) { return "(" + ids.map(id => '"' + id + '"').join(",") + ")"; }
+// PostgREST `in` list for text ids. The ids we mint are hex / base36 /
+// derived (heldBenefitId), but an imported backup supplies them straight from
+// a file, and one stray quote in this filter would turn a scoped delete into
+// a different delete. Escape per PostgREST's quoted-value rules rather than
+// trusting the input to be harmless.
+function pgIdList(ids) {
+  const q = (id) => '"' + String(id).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  return "(" + ids.map(q).join(",") + ")";
+}
 
 async function writeHandle(handle, db) {
   const writable = await handle.createWritable();
@@ -1577,14 +1751,14 @@ function App() {
     setCloud(c => ({ status: "syncing", last: c.last, error: null }));
     const [cardsRes, bensRes, metaRes] = await Promise.all([
       client.from("held_cards").select("*").order("added_at"),
-      client.from("held_benefits").select("*"),
+      client.from("held_benefits").select("*").order("id"),
       client.from("sync_meta").select("updated_at").maybeSingle(),
     ]);
     if (cardsRes.error) throw cardsRes.error;
     if (bensRes.error) throw bensRes.error;
     if (metaRes.error) throw metaRes.error;
-    const next = retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(
-      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION)))));
+    const next = retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(normalizeHeldBenefitIds(syncSeedCatalog(
+      CloudSync.dbFromRows(cardsRes.data, bensRes.data, SCHEMA_VERSION))))));
     applyingCloud.current = true;
     setDb(next);
     if (gen === authGen.current) {
@@ -1737,7 +1911,7 @@ function App() {
           held_cards: parsed.held_cards || [],
           held_benefits: parsed.held_benefits || [],
         };
-        setDb(retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(syncSeedCatalog(clean)))));
+        setDb(retuneDoorDash2026(seedAutoCredits(reconcileHeldBenefits(normalizeHeldBenefitIds(syncSeedCatalog(clean))))));
       } catch (err) {
         alert("Couldn't read that file — invalid JSON.");
       } finally {

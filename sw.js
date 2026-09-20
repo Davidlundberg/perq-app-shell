@@ -15,7 +15,7 @@
  * Bump VERSION on any shell change — activate deletes all older perq-* caches.
  * tools/publish_shell.py asserts its --version matches this constant.
  */
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const SHELL_CACHE = `perq-shell-${VERSION}`;
 const RUNTIME_CACHE = `perq-runtime-${VERSION}`;
 
